@@ -826,72 +826,55 @@ bool dataStream(int one)
         return true;
     }
 }
-// MFD data to send
-String readMfd(int &mfd_dev_id)
-{
-    digitalWrite(connLed, HIGH);
+// MFD data to send 
+String readMfd( int mfd_dev_id){
+  digitalWrite(connLed,HIGH);
 
     node.begin(mfd_dev_id, Serial2);
-    String msgMfd;
-  if(ts_epoch < 1611040428){
-    msgMfd = "notime";
+  String msgMfd; 
 
-   }else{
-    msgMfd = String(time_to_print);
+  msgMfd = String(time_to_print);
+  msgMfd += "," + id ;
+  msgMfd += "," + String(7);
+  msgMfd += "," + String(mfd_dev_id);
+  msgMfd += "," + String(1);
+  msgMfd += "," + String(readWattageR(100)); 
+  msgMfd += "," + String(readWattageR(102));
+  msgMfd += "," + String(readWattageR(104));
+  msgMfd += "," + String(readWattageR(106));
+  msgMfd += "," + String(readWattageR(108)); 
+  msgMfd += "," + String(readWattageR(110)); 
+  msgMfd += "," + String(readWattageR(112)); 
+  msgMfd += "," + String(readWattageR(114)); 
+  msgMfd += "," + String(readWattageR(116));
+  msgMfd += "," + String(readWattageR(118)); 
+  msgMfd += "," + String(readWattageR(120)); 
+  msgMfd += "," + String(readWattageR(122)); 
+  msgMfd += "," + String(readWattageR(124)); 
+  msgMfd += "," + String(readWattageR(126)); 
+  msgMfd += "," + String(readWattageR(128)); 
+  msgMfd += "," + String(readWattageR(130)); 
+  msgMfd += "," + String(readWattageR(132)); 
+  msgMfd += "," + String(readWattageR(134)); 
+  msgMfd += "," + String(readWattageR(136)); 
+  msgMfd += "," + String(readWattageR(138)); 
+  msgMfd += "," + String(readWattageR(140)); 
+  msgMfd += "," + String(readWattageR(142));  
+  msgMfd += "," + String(readWattageR(144));  
+  msgMfd += "," + String(readWattageR(146));  
 
-   }
-    msgMfd += "," + id;
-    msgMfd += "," + String(7);
-    msgMfd += "," + String(mfd_dev_id);
-    msgMfd += "," + String(1);
-    msgMfd += "," + String(readWattageR(100));
-    msgMfd += "," + String(readWattageR(102));
-    msgMfd += "," + String(readWattageR(104));
-    msgMfd += "," + String(readWattageR(106));
-    msgMfd += "," + String(readWattageR(108));
-    msgMfd += "," + String(readWattageR(110));
-    msgMfd += "," + String(readWattageR(112));
-    msgMfd += "," + String(readWattageR(114));
-    msgMfd += "," + String(readWattageR(116));
-    msgMfd += "," + String(readWattageR(118));
-    msgMfd += "," + String(readWattageR(120));
-    msgMfd += "," + String(readWattageR(122));
-    msgMfd += "," + String(readWattageR(124));
-    msgMfd += "," + String(readWattageR(126));
-    msgMfd += "," + String(readWattageR(128));
-    msgMfd += "," + String(readWattageR(130));
-    msgMfd += "," + String(readWattageR(132));
-    msgMfd += "," + String(readWattageR(134));
-    msgMfd += "," + String(readWattageR(136));
-    msgMfd += "," + String(readWattageR(138));
-    msgMfd += "," + String(readWattageR(140));
-    msgMfd += "," + String(readWattageR(142));
-    msgMfd += "," + String(readWattageR(144));
-    msgMfd += "," + String(readWattageR(146));
+  return msgMfd;
+  }
 
-    return msgMfd;
-}
+  //second part of the MFD data
+String readMfd2(int mfd_dev_id){
+  digitalWrite(connLed,HIGH);
 
-//second part of the MFD data
-String readMfd2(int &mfd_dev_id)
-{
-    digitalWrite(connLed, HIGH);
-    String msgMfd2;
-/*
-    if(ts_epoch < 10000){
-    msgMfd2 += "notime";
-
-   }else{
-    msgMfd2 += String(time_to_print);
-
-   }*/
-       msgMfd2 += String(time_to_print);
-
-     msgMfd2 =  "," + id + "," + String(7);
+String msgMfd2 = String(time_to_print) + "," + id + "," + String(7);
     msgMfd2 += "," + String(mfd_dev_id);
     msgMfd2 += "," + String(2);
-    msgMfd2 += "," + String(readWattageR(148));
-    msgMfd2 += "," + String(readWattageR(150));
+    msgMfd2 += "," + String(readWattageR(148)); 
+    msgMfd2 += "," + String(readWattageR(150)); 
     msgMfd2 += "," + String(readWattageR(152));
     msgMfd2 += "," + String(readWattageR(154));
     msgMfd2 += "," + String(readWattageR(156));
@@ -915,9 +898,10 @@ String readMfd2(int &mfd_dev_id)
     msgMfd2 += "," + String(readWattageR(192));
     msgMfd2 += "," + String(readWattageR(194));
     msgMfd2 += "," + String(readWattageR(196));
+  
+  return msgMfd2;
+  }
 
-    return msgMfd2;
-}
 
 boolean read_Mfd_Task()
 {
