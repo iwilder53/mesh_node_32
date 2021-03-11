@@ -109,7 +109,7 @@ void updateTime()
 //Declarations for tasks scheduling
 Task taskUpdateTime(TASK_SECOND * 1, TASK_FOREVER, &updateTime); // Set task second to send msg in a time interval (Here interval is 4 second)
 Task taskConnLed(TASK_MILLISECOND, TASK_FOREVER, &blink_con_led);
-Task taskSendMessage(TASK_SECOND, TASK_FOREVER, &sendMessage);        // Set task second to send msg in a time interval (Here interval is 4 second)
+Task taskSendMessage(TASK_MINUTE * 4, TASK_FOREVER, &sendMessage);        // Set task second to send msg in a time interval (Here interval is 4 second)
 Task taskSendMsgSd(TASK_MILLISECOND * 500, TASK_FOREVER, &sendMsgSd); // Set task second to send msg in a time interval
 Task task_Multi_Mfd_Read(TASK_SECOND * 7, TASK_FOREVER, &multi_mfd_read);
 Task taskReadMBE(TASK_SECOND * 10, TASK_FOREVER, &mbe);
@@ -120,6 +120,7 @@ Task taskUpdateLcd(TASK_SECOND * 2, TASK_FOREVER, &lcdShiet);
 
 void sendMessage()
 {
+        lcd.init();
     // digitalWrite(sendLed, HIGH);  // for testing  && debugging
 }
 
@@ -175,7 +176,7 @@ void setup()
     lcd.blink_off();
     Serial.begin(115200);
     esp_wifi_set_max_tx_power(50);
-
+    
     // parsing the config
     esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
     esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_LR);
@@ -427,8 +428,7 @@ void loop()
     if (wdt == 180)
     {
         writeTimeToCard();
-        while (1)
-            ;
+        while (1);
     }
 
     //periodic restart to avoid memory fragmentation
@@ -562,7 +562,7 @@ void sendMsgSd()
             if (buffer != "")
             {
 
-                mesh.sendSingle(root, msgSd);
+               sendPayload(msgSd);// mesh.sendSingle(root, msgSd);
                 Serial.println(msgSd);
                 pos = file.position();
             }
@@ -573,7 +573,7 @@ void sendMsgSd()
         {
             String ackMsg = id;
             ackMsg += "sent from sd card";
-            mesh.sendSingle(root, ackMsg);
+            //mesh.sendSingle(root, ackMsg);
             SPIFFS.remove("/offlinelog.txt");
             taskSendMsgSd.disable();
         }
@@ -1017,10 +1017,10 @@ void saveToCard(String &payload)
 }
 //sending data to root
 void sendPayload(String &payload)
-{
+{   wdt = 0;
     Serial.println(payload);
     if (mesh.isConnected(root))
-    {
+    {   
         // digitalWrite(sendLed, HIGH);
         taskSendMsgSd.enable();
         mesh.sendSingle(root, String(payload));
@@ -1036,7 +1036,6 @@ void sendPayload(String &payload)
     {
         saveToCard(payload);
     }
-    wdt = 0;
 }
 
 //to set blink frequency based on signal strength
@@ -1182,5 +1181,5 @@ void taskToggle(){
     }
     taskUpdateTime.enable();
     taskUpdateLcd.enable();
-
+   // taskSendMessage.enable();
 }
