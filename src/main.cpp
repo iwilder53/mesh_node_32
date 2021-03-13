@@ -4,13 +4,13 @@
 #include <MCP3008.h>
 #include "FS.h"
 #include <Arduino.h>
-#include <ModbusMaster.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 #include <Arduino.h>
 #include "esp_wifi.h"
 #include <SPIFFS.h>
+#include <ModbusRTU.h>
 
 #include <EasyButton.h>
 #include "Wire.h"
@@ -28,24 +28,28 @@
 #include <AsyncTCP.h>
 #define MESH_PORT 5555 // Mesh Port should be same for all  nodes in Mesh Network
 
+uint32_t mfdVals[41];
 //objects declaraation
+
+Modbus::ResultCode err;
 Adafruit_BME280 bme;
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 EasyButton button(BUTTON_PIN);
 
 Scheduler userScheduler; // to control your personal task
 painlessMesh mesh;
-ModbusMaster node;
-
+ModbusRTU mb;
 //variables
 uint8_t mfd_read_pos = 0;
+uint16_t hregs2[96];
+float mfdValues[25];
 int relay_pin_0_min, relay_pin_0_max, relay_pin_1_min, relay_pin_1_max, relay_pin_2_min, relay_pin_2_max, relay_pin_3_min, relay_pin_3_max, relay_pin_04_min, relay_pin_04_max, relay_pin_05_min, relay_pin_05_max, relay_pin_06_min, relay_pin_06_max, relay_pin_07_min, relay_pin_07_max; // Mesh Port should be same for all  nodes in Mesh Network
 int bmeRelay_t_Min, bmeRelay_t_Max, bmeRelay_p_Max, bmeRelay_h_Max, bmeRelay_h_Min, bmeRelay_p_Min;
 int device_count;
-int mfd_dev_id[5];
+uint16_t mfd_dev_id[5];
 uint8_t sendDelay = 2;
 unsigned long period = 0;
-String id;
+char *id;
 int wdt = 0;
 int ts_epoch;
 int timeIndex;
@@ -68,6 +72,8 @@ String msgSd;
 uint8_t interval = 1000;
 bool ackStatus;
 TaskHandle_t meshTaskHandle_t;
+xSemaphoreHandle xMutex;
+
 // User stub
 void updateTime();
 void mbe();
@@ -76,11 +82,11 @@ void meshUpdate(void *random);
 void readMcp();
 void writeToCard();
 void writeTimeToCard();
-String readMfd();
+String readMfd(uint16_t devId);
 void taskToggle();
 void preTransmission();
 void postTransmission();
-bool dataStream(int one);
+void dataStream(uint16_t address, uint16_t deviceId);
 void cpu_chill();
 boolean read_Mfd_Task();
 void updateTime();
@@ -88,7 +94,7 @@ void sendMessage();
 void sendMsgSd();
 void blink_con_led();
 void sendPayload(String &payload);
-void saveToCard();
+void saveToCard(String &payload);
 void sendMFD();
 void updateRssi();
 void lcdInfo();
@@ -109,7 +115,7 @@ void updateTime()
 //Declarations for tasks scheduling
 Task taskUpdateTime(TASK_SECOND * 1, TASK_FOREVER, &updateTime); // Set task second to send msg in a time interval (Here interval is 4 second)
 Task taskConnLed(TASK_MILLISECOND, TASK_FOREVER, &blink_con_led);
-Task taskSendMessage(TASK_MINUTE * 4, TASK_FOREVER, &sendMessage);        // Set task second to send msg in a time interval (Here interval is 4 second)
+Task taskSendMessage(TASK_MINUTE * 4, TASK_FOREVER, &sendMessage);    // Set task second to send msg in a time interval (Here interval is 4 second)
 Task taskSendMsgSd(TASK_MILLISECOND * 500, TASK_FOREVER, &sendMsgSd); // Set task second to send msg in a time interval
 Task task_Multi_Mfd_Read(TASK_SECOND * 7, TASK_FOREVER, &multi_mfd_read);
 Task taskReadMBE(TASK_SECOND * 10, TASK_FOREVER, &mbe);
@@ -129,12 +135,13 @@ void receivedCallback(uint32_t from, String &msg)
     if (msg == "restart")
     {
         ESP.restart();
-    }else{
-     String strMsg = String(msg);
-    ts_epoch = msg.toInt();
     }
-  //  Serial.printf("startHere: Received from %u msg=%s\n", from, msg.c_str());
- 
+    else
+    {
+        String strMsg = String(msg);
+        ts_epoch = msg.toInt();
+    }
+    //  Serial.printf("startHere: Received from %u msg=%s\n", from, msg.c_str());
 }
 // runs when a new connection is established
 void newConnectionCallback(uint32_t nodeId)
@@ -148,7 +155,7 @@ void newConnectionCallback(uint32_t nodeId)
     if (mesh.startDelayMeas(root))
     {
         taskSendMsgSd.enable();
-        String configFile = String(id + "," + String(root) + "," + String(mcp) + "," + String(mfd) + "," + String(pins) + "," + String(sendDelay));
+        String configFile = String(String(id) + "," + String(root) + "," + String(mcp) + "," + String(mfd) + "," + String(pins) + "," + String(sendDelay));
         mesh.sendSingle(root, configFile);
     }
     taskConnLed.enable();
@@ -171,6 +178,7 @@ void droppedConnection(uint32_t node_id)
     lcd.println("Lost connection To : " + node_id);
     taskConnLed.disable();
     digitalWrite(connLed, LOW);
+    delay(3000);
 }
 void setup()
 {
@@ -179,11 +187,15 @@ void setup()
     lcd.backlight();
     lcd.blink_off();
     Serial.begin(115200);
- //   esp_wifi_set_max_tx_power(50);
-    
+
+    Serial2.begin(9600, SERIAL_8E1);
+    mb.begin(&Serial2);
+    mb.master();
+    xMutex = xSemaphoreCreateMutex(); //   esp_wifi_set_max_tx_power(50);
+
     // parsing the config
-  //  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
-   // esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_LR);
+    //  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+    // esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_LR);
 
     SPIFFS.begin();
 
@@ -283,8 +295,9 @@ void setup()
     sendDelay = atoi(DELAY);
     Serial.print("Loaded id: ");
 
-    id = atoi(ID);
-    lcd.print("Loaded id: " + id);
+    strcpy(id, ID); // ID;
+    lcd.print("Loaded id: ");
+    lcd.print(id);
 
     Serial.println(ID);
     // Serial.print("Loaded root id: ");
@@ -373,7 +386,7 @@ void setup()
     userScheduler.addTask(taskReadMcp);
     userScheduler.addTask(taskUpdateRssi);
     userScheduler.addTask(taskUpdateLcd);
-  
+
     //set IO pins
     pinMode(A0, INPUT);           // Define A0 pin as INPUT
     pinMode(LED_BUILTIN, OUTPUT); // Define LED_BUILTIN as OUTPUT
@@ -383,18 +396,20 @@ void setup()
     pinMode(relayPin, OUTPUT);
     digitalWrite(relayPin, LOW); // Initially the LED will be off
     xTaskCreatePinnedToCore(meshUpdate, "meshTask", 40000, meshTaskHandle_t, 3, NULL, 0);
-    lcd.clear();    lcd.print("Hetadatain");
+    lcd.clear();
+    lcd.print("Hetadatain");
 
     delay(100);
-    
+
     lcd.setCursor(3, 1);
-    lcd.print("Spyder Eye");for (uint8_t i = 3; i < 14; i++)
+    lcd.print("Spyder Eye");
+    for (uint8_t i = 3; i < 14; i++)
     {
 
-    lcd.setCursor(i, 1);
+        lcd.setCursor(i, 1);
 
-    lcd.print(".");
-    delay(100);
+        lcd.print(".");
+        delay(100);
     }
 
     lcd.setCursor(13, 1);
@@ -419,7 +434,7 @@ void meshUpdate(void *random)
     {
         mesh.update();
         button.read();
-      vTaskDelay(10/portTICK_RATE_MS);//  delay(10);
+        vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
     }
 }
 void loop()
@@ -432,7 +447,8 @@ void loop()
     if (wdt == 180)
     {
         writeTimeToCard();
-        while (1);
+        while (1)
+            ;
     }
 
     //periodic restart to avoid memory fragmentation
@@ -471,7 +487,7 @@ void readMcp()
         mcpVals[j] = k / 10;
     }
 
-    msgMcp += String(ts_epoch) + String(",") + String(id.c_str());
+    msgMcp += String(ts_epoch) + String(",") + String(id);
 
     msgMcp.concat(",");
     msgMcp.concat("6");
@@ -566,7 +582,7 @@ void sendMsgSd()
             if (buffer != "")
             {
 
-               sendPayload(msgSd);// mesh.sendSingle(root, msgSd);
+                sendPayload(msgSd); // mesh.sendSingle(root, msgSd);
                 Serial.println(msgSd);
                 pos = file.position();
             }
@@ -622,319 +638,138 @@ void blink_con_led()
         led_active = true;
     }
 }
-//bit-banging for mfd data
-int bin2dec(String sb)
-{
-    int rem, dec_val = 0, base = 1, expo = 0, temp = 0, i = 0;
-    for (i = sb.length() - 1; i >= 0; i--)
-    {
-        if (sb[i] == '0')
-            temp = 0;
-        else
-        {
-            if (sb[i] == '1')
-                temp = 1;
-        }
-        dec_val = dec_val + temp * base;
-        base = base * 2;
-    }
-    return dec_val;
-}
-
-String dec2binary(int x)
-{
-    int num = x;
-    uint8_t bitsCount = 16;
-    char str[bitsCount + 1];
-    uint8_t i = 0;
-    while (bitsCount--)
-        str[i++] = bitRead(num, bitsCount) + '0';
-    str[i] = '\0';
-    Serial.println(str[i]);
-    return str;
-}
-
-double RSmeter(int one, int two)
-{
-    int SIGN, EXPONENT;
-    float division;
-    char first[8], second1[8];
-    char third[8], last[8];
-    int i, j, d3, z;
-
-    String hexa0 = String(two, HEX);
-    String bin0 = dec2binary(int(two));
-
-    String hexa1 = String(one, HEX);
-    String bin1 = dec2binary(int(one));
-
-    for (i = 0; i <= 7; i++)
-    {
-        first[i] = bin0[i];
-    }
-
-    int aaaa = first[0];
-
-    if (aaaa != '1')
-    {
-        SIGN = 1;
-    }
-    else
-    {
-        SIGN = -1;
-    }
-
-    for (j = 8; j <= 15; j++)
-    {
-        second1[j] = bin0[j];
-    }
-    for (int d3 = 0; d3 <= 7; d3++)
-    {
-        third[d3] = bin1[d3];
-    }
-    for (int z = 8; z <= 15; z++)
-    {
-        last[z] = bin1[z];
-    }
-
-    String a = String(bin0[1]);
-    String b = String(bin0[2]);
-    String c = String(bin0[3]);
-    String d = String(bin0[4]);
-    String e = String(bin0[5]);
-    String f = String(bin0[6]);
-    String g = String(bin0[7]);
-    String h = String(bin0[8]);
-    String step1 = String((a) + (b) + (c) + (d) + (e) + (f) + (g) + (h));
-
-    String j2 = String(bin0[9]);
-    String k2 = String(bin0[10]);
-    String l2 = String(bin0[11]);
-    String m2 = String(bin0[12]);
-    String n2 = String(bin0[13]);
-    String o2 = String(bin0[14]);
-    String p2 = String(bin0[15]);
-    String step2 = String((j2) + (k2) + (l2) + (m2) + (n2) + (o2) + (p2));
-
-    int decimal = bin2dec(String(step1));
-
-    EXPONENT = decimal - 127;
-
-    String a1 = String(bin1[0]);
-    String b1 = String(bin1[1]);
-    String c1 = String(bin1[2]);
-    String d1 = String(bin1[3]);
-    String e1 = String(bin1[4]);
-    String f1 = String(bin1[5]);
-    String g1 = String(bin1[6]);
-    String h1 = String(bin1[7]);
-    String step3 = String((a1) + (b1) + (c1) + (d1) + (e1) + (f1) + (g1) + (h1));
-
-    String x2 = String(bin1[8]);
-    String q2 = String(bin1[9]);
-    String r2 = String(bin1[10]);
-    String s2 = String(bin1[11]);
-    String t2 = String(bin1[12]);
-    String u2 = String(bin1[13]);
-    String v2 = String(bin1[14]);
-    String w2 = String(bin1[15]);
-    String step4 = String((x2) + (q2) + (r2) + (s2) + (t2) + (u2) + (v2) + (w2));
-
-    String combined = String((step2) + (step3) + (step4));
-
-    float dec1 = bin2dec(String(step2));
-    float dec2 = bin2dec(String(step3));
-    float dec3 = bin2dec(String(step4));
-    float sum = ((dec1)*256 * 256) + ((dec2)*256) + (dec3);
-
-    if (EXPONENT == 0)
-    {
-        division = (sum / 4194304);
-    }
-    else
-    {
-        division = (sum / 8388608);
-    }
-
-    float MANTISSA = division + 1;
-    double Power = pow(2, EXPONENT);
-    double FLOAT = SIGN * MANTISSA * Power;
-
-    return (FLOAT);
-}
-
-int validDenominator(int number)
-{
-    if (number == 0 || isnan(number))
-        return 1;
-    else
-        return number;
-}
-//ornidazole
-double readWattageR(int add)
-{
-
-    if (dataStream(add) == true)
-    {
-        double Wattage = NAN;
-        Wattage = RSmeter(first_Reg, second_Reg);
-        return Wattage;
-    }
-}
-
-//getting data from mfd
-bool dataStream(int one)
-{
-    first_Reg = 0;
-    second_Reg = 0;
-    node.clearResponseBuffer();
-    vTaskDelay(40 / portTICK_RATE_MS); // delay(40);
-    int result = node.readHoldingRegisters(one,2);
-
-    vTaskDelay(40 / portTICK_RATE_MS); // delay(40);
-    if (result == node.ku8MBSuccess)
-    {
-        first_Reg = node.getResponseBuffer(0);
-        second_Reg = node.getResponseBuffer(1);
-        return true;
-    }
-    else
-    {
-        node.clearResponseBuffer();
-
-        vTaskDelay(40 / portTICK_RATE_MS); // delay(60);
-        result = node.readHoldingRegisters(one, 2);
-        if (result == node.ku8MBSuccess)
-        {
-
-            first_Reg = node.getResponseBuffer(0);
-            second_Reg = node.getResponseBuffer(1);
-        }
-        else
-        {
-            node.clearResponseBuffer();
-
-            vTaskDelay(40 / portTICK_RATE_MS); // delay(60);
-            result = node.readHoldingRegisters(one, 2);
-            if (result == node.ku8MBSuccess)
-            {
-
-                first_Reg = node.getResponseBuffer(0);
-                second_Reg = node.getResponseBuffer(1);
-            }
-            else
-            {
-                //   mfd_read_pos++;
-            }
-        }
-        return true;
-    }
-}
-// MFD data to send 
-String readMfd( int mfd_dev_id){
-  digitalWrite(connLed,HIGH);
-
-    node.begin(mfd_dev_id, Serial2);
-  String msgMfd; 
-
-  msgMfd = String(time_to_print);
-  msgMfd += "," + id ;
-  msgMfd += "," + String(7);
-  msgMfd += "," + String(mfd_dev_id);
-  msgMfd += "," + String(1);
-  msgMfd += "," + String(readWattageR(100)); 
-  msgMfd += "," + String(readWattageR(102));
-  msgMfd += "," + String(readWattageR(104));
-  msgMfd += "," + String(readWattageR(106));
-  msgMfd += "," + String(readWattageR(108)); 
-  msgMfd += "," + String(readWattageR(110)); 
-  msgMfd += "," + String(readWattageR(112)); 
-  msgMfd += "," + String(readWattageR(114)); 
-  msgMfd += "," + String(readWattageR(116));
-  msgMfd += "," + String(readWattageR(118)); 
-  msgMfd += "," + String(readWattageR(120)); 
-  msgMfd += "," + String(readWattageR(122)); 
-  msgMfd += "," + String(readWattageR(124)); 
-  msgMfd += "," + String(readWattageR(126)); 
-  msgMfd += "," + String(readWattageR(128)); 
-  msgMfd += "," + String(readWattageR(130)); 
-  msgMfd += "," + String(readWattageR(132)); 
-  msgMfd += "," + String(readWattageR(134)); 
-  msgMfd += "," + String(readWattageR(136)); 
-  msgMfd += "," + String(readWattageR(138)); 
-  msgMfd += "," + String(readWattageR(140)); 
-  msgMfd += "," + String(readWattageR(142));  
-  msgMfd += "," + String(readWattageR(144));  
-  msgMfd += "," + String(readWattageR(146));  
-
-  return msgMfd;
-  }
-
-  //second part of the MFD data
-String readMfd2(int mfd_dev_id){
-  digitalWrite(connLed,HIGH);
-
-String msgMfd2 = String(time_to_print) + "," + id + "," + String(7);
-    msgMfd2 += "," + String(mfd_dev_id);
-    msgMfd2 += "," + String(2);
-    msgMfd2 += "," + String(readWattageR(148)); 
-    msgMfd2 += "," + String(readWattageR(150)); 
-    msgMfd2 += "," + String(readWattageR(152));
-    msgMfd2 += "," + String(readWattageR(154));
-    msgMfd2 += "," + String(readWattageR(156));
-    msgMfd2 += "," + String(readWattageR(158));
-    msgMfd2 += "," + String(readWattageR(160));
-    msgMfd2 += "," + String(readWattageR(162));
-    msgMfd2 += "," + String(readWattageR(164));
-    msgMfd2 += "," + String(readWattageR(166));
-    msgMfd2 += "," + String(readWattageR(168));
-    msgMfd2 += "," + String(readWattageR(170));
-    msgMfd2 += "," + String(readWattageR(172));
-    msgMfd2 += "," + String(readWattageR(174));
-    msgMfd2 += "," + String(readWattageR(176));
-    msgMfd2 += "," + String(readWattageR(178));
-    msgMfd2 += "," + String(readWattageR(180));
-    msgMfd2 += "," + String(readWattageR(182));
-    msgMfd2 += "," + String(readWattageR(184));
-    msgMfd2 += "," + String(readWattageR(186));
-    msgMfd2 += "," + String(readWattageR(188));
-    msgMfd2 += "," + String(readWattageR(190));
-    msgMfd2 += "," + String(readWattageR(192));
-    msgMfd2 += "," + String(readWattageR(194));
-    msgMfd2 += "," + String(readWattageR(196));
-  
-  return msgMfd2;
-  }
-
 
 boolean read_Mfd_Task()
 {
     MCP_Sent = false;
-  //  userScheduler.disableAll();
+    //  userScheduler.disableAll();
     taskUpdateTime.enableIfNot();
-   // vTaskSuspend(meshTaskHandle_t);
-    task_Multi_Mfd_Read.enable();
+    // vTaskSuspend(meshTaskHandle_t);
+    task_Multi_Mfd_Read.enableIfNot();
     time_to_print = ts_epoch;
 
     return true;
 }
 
+bool resCallback(Modbus::ResultCode event, uint16_t, void *)
+{
+    err = event;
+}
+
+Modbus::ResultCode readSync(uint16_t Address, uint16_t start, uint16_t num, uint16_t *buf)
+{
+    xSemaphoreTake(xMutex, portMAX_DELAY);
+    if (mb.slave())
+    {
+        xSemaphoreGive(xMutex);
+        return Modbus::EX_GENERAL_FAILURE;
+    }
+    Serial.printf("SlaveID: %d Hreg %d\n", Address, start);
+    mb.readHreg(Address, start, buf, num, resCallback);
+    while (mb.slave())
+    {
+        vTaskDelay(1);
+        mb.task();
+    }
+    Modbus::ResultCode res = err;
+    xSemaphoreGive(xMutex);
+    return res;
+}
+
+void dataStream(uint16_t address, uint16_t deviceId)
+{
+
+    if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+    {
+        Serial.println("OK 2");
+    }
+    else
+    {
+        Serial.print("Error 2");
+    }
+    uint8_t j = 0;
+    // String msgMfd;
+    for (uint8_t i = 0; i < 48; i++)
+    {
+
+        uint16_t temp1[2] = {hregs2[i], hregs2[i + 1]};
+        memcpy(&mfdValues[j], temp1, 32);
+        Serial.println(mfdValues[j]);
+        j++;
+        i++;
+    }
+}
+String readMfd(uint16_t devId)
+{
+     char *msgMfd;
+    dataStream(100, devId);
+    msgMfd += time_to_print;
+    strcat(",", msgMfd);
+    strcat(id, msgMfd);
+    strcat(",", msgMfd);
+    strcat("7", msgMfd);
+    strcat(",", msgMfd);
+    char *dev_id;
+    itoa(devId, dev_id, 10);
+    strcat(dev_id, msgMfd);
+    strcat(",", msgMfd);
+    strcat("1", msgMfd);
+    strcat(",", msgMfd);
+    for (uint8_t i = 0; i < 24; i++)
+    {
+        char mfdshiett[10];
+        itoa(mfdValues[i], mfdshiett, 10);
+        strcat(mfdshiett, msgMfd);
+        strcat(",", msgMfd);
+    }
+    String msgToSend = msgMfd; //c_str();
+
+    return msgToSend;
+}
+String readMfd2(uint16_t devId)
+{
+    const char *msgMfd;
+    dataStream(150, devId);
+    msgMfd += time_to_print;
+    strcat(",", msgMfd);
+    strcat(id, msgMfd);
+    strcat(",", msgMfd);
+
+    strcat("7", msgMfd);
+    strcat(",", msgMfd);
+    char *dev_id;
+    itoa(devId, dev_id, 10);
+    strcat(dev_id, msgMfd);
+    strcat(",", msgMfd);
+    strcat("2", msgMfd);
+    strcat(",", msgMfd);
+
+    for (uint8_t i = 0; i < 24; i++)
+    {
+        char mfdshiett[10];
+        itoa(mfdValues[i], mfdshiett, 10);
+        strcat(mfdshiett, msgMfd);
+        strcat(",", msgMfd);
+    }
+    String msgToSend = msgMfd; //c_str();
+
+    return msgToSend;
+}
+
 void multi_mfd_read()
 {
     time_to_print++; //set the time for mfd data to be in sync
-    Serial2.begin(9600, SERIAL_8E1);
     msgMfd_payload = readMfd(mfd_dev_id[mfd_read_pos]);
+    vTaskDelay(100 / portTICK_RATE_MS);
     msgMfd_payload1 = readMfd2(mfd_dev_id[mfd_read_pos]);
     sendMFD();
 
-    Serial2.end();
-
     mfd_read_pos++;
     if (mfd_read_pos >= device_count)
-    {   
+    {
         task_Multi_Mfd_Read.disable();
         mfd_read_pos = 0;
-       // vTaskResume(meshTaskHandle_t);
+        // vTaskResume(meshTaskHandle_t);
     }
 }
 
@@ -1005,7 +840,7 @@ void mbe()
     sendPayload(readMbe);
 }
 void sendMFD()
-{    
+{
     //digitalWrite(sendLed, HIGH);
     sendPayload(msgMfd_payload);
     sendPayload(msgMfd_payload1);
@@ -1021,16 +856,17 @@ void saveToCard(String &payload)
 }
 //sending data to root
 void sendPayload(String &payload)
-{   wdt = 0;
+{
+    wdt = 0;
     Serial.println(payload);
     if (mesh.isConnected(root))
-    {   
+    {
         // digitalWrite(sendLed, HIGH);
         taskSendMsgSd.enable();
         mesh.sendSingle(root, String(payload));
         if (WiFi.RSSI() <= (-90))
         {
-            mesh.sendSingle(root, (id + ("signal Low ")));
+            mesh.sendSingle(root, (String(id) + ("signal Low ")));
             esp_wifi_set_max_tx_power(80);
 
             delay(10);
@@ -1106,21 +942,22 @@ void lcdInfo()
 {
     switch (lcdState)
     {
-    case  1:
+    case 1:
         /* code */
         break;
-    
+
     default:
         break;
     }
 }
 void lcdShiet()
-{           lcd.init();
+{
+    lcd.init();
 
     if (infoNow == true)
     {
         infoNow = false;
-        if (meshAlive || WiFi.RSSI() !=0)
+        if (meshAlive || WiFi.RSSI() != 0)
         {
 
             lcd.blink_off();
@@ -1143,26 +980,28 @@ void lcdShiet()
             lcd.clear();
             lcd.print("Searching");
         }
-    } else
-        {
-            infoNow = true;
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print("Spyder EYE");
-            lcd.setCursor(0, 1);
-            lcd.print("Signal :");
-            lcd.setCursor(9, 1);
-            lcd.print(String(WiFi.RSSI()) + "db");
-          /*  lcd.clear();
+    }
+    else
+    {
+        infoNow = true;
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Spyder EYE");
+        lcd.setCursor(0, 1);
+        lcd.print("Signal :");
+        lcd.setCursor(9, 1);
+        lcd.print(String(WiFi.RSSI()) + "db");
+        /*  lcd.clear();
             lcd.setCursor(0, 0);
             lcd.print("Free Ram :");
             lcd.setCursor(3, 1);
             lcd.print(String(ESP.getFreeHeap()));*/
-        }
+    }
 }
 
-void taskToggle(){
-  //tasks to enable
+void taskToggle()
+{
+    //tasks to enable
     taskConnLed.enable();
     taskUpdateRssi.enable();
 
@@ -1178,7 +1017,6 @@ void taskToggle(){
         {
             Serial.println("Could not find a valid BME280 sensor, check wiring!");
         }
-        bme.MODE_FORCED;
     }
     if (mfd == 1)
     {
@@ -1186,5 +1024,5 @@ void taskToggle(){
     }
     taskUpdateTime.enable();
     taskUpdateLcd.enable();
-   // taskSendMessage.enable();
+    // taskSendMessage.enable();
 }
