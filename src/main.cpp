@@ -120,17 +120,21 @@ Task taskUpdateLcd(TASK_SECOND * 2, TASK_FOREVER, &lcdShiet);
 
 void sendMessage()
 {
-        lcd.init();
     // digitalWrite(sendLed, HIGH);  // for testing  && debugging
 }
 
 //runs when node recieves something
 void receivedCallback(uint32_t from, String &msg)
 {
-   
-    Serial.printf("startHere: Received from %u msg=%s\n", from, msg.c_str());
-    String strMsg = String(msg);
-    ts_epoch = strMsg.toInt();
+    if (msg == "restart")
+    {
+        ESP.restart();
+    }else{
+     String strMsg = String(msg);
+    ts_epoch = msg.toInt();
+    }
+  //  Serial.printf("startHere: Received from %u msg=%s\n", from, msg.c_str());
+ 
 }
 // runs when a new connection is established
 void newConnectionCallback(uint32_t nodeId)
@@ -175,11 +179,11 @@ void setup()
     lcd.backlight();
     lcd.blink_off();
     Serial.begin(115200);
-    esp_wifi_set_max_tx_power(50);
+ //   esp_wifi_set_max_tx_power(50);
     
     // parsing the config
-    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
-    esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_LR);
+  //  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+   // esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_LR);
 
     SPIFFS.begin();
 
@@ -785,7 +789,7 @@ bool dataStream(int one)
     second_Reg = 0;
     node.clearResponseBuffer();
     vTaskDelay(40 / portTICK_RATE_MS); // delay(40);
-    int result = node.readHoldingRegisters(one, 2);
+    int result = node.readHoldingRegisters(one,2);
 
     vTaskDelay(40 / portTICK_RATE_MS); // delay(40);
     if (result == node.ku8MBSuccess)
@@ -1111,7 +1115,8 @@ void lcdInfo()
     }
 }
 void lcdShiet()
-{
+{           lcd.init();
+
     if (infoNow == true)
     {
         infoNow = false;
