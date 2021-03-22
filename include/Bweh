@@ -39,7 +39,7 @@ String ssid,password;
 int relay_pin_0_min, relay_pin_0_max, relay_pin_1_min, relay_pin_1_max, relay_pin_2_min, relay_pin_2_max, relay_pin_3_min, relay_pin_3_max, relay_pin_04_min, relay_pin_04_max, relay_pin_05_min, relay_pin_05_max, relay_pin_06_min, relay_pin_06_max, relay_pin_07_min, relay_pin_07_max; // Mesh Port should be same for all  nodes in Mesh Network
 int bmeRelay_t_Min, bmeRelay_t_Max, bmeRelay_p_Max, bmeRelay_h_Max, bmeRelay_h_Min, bmeRelay_p_Min;
 int device_count;
-uint16_t mfd_dev_id[10];
+uint16_t mfd_dev_id[9];
 uint8_t sendDelay = 1;
 unsigned long period = 0;
 String id;
@@ -186,10 +186,6 @@ void newConnectionCallback(uint32_t nodeId)
 void changedConnectionCallback()
 {
 
-    if (rootStorage == true && mesh.isConnected(root))
-    {
-        taskSendMsgSd.enable();
-    }  
     meshAlive = true;
     Serial.printf("Changed connections\n");
     String nMap = mesh.subConnectionJson(true);
@@ -511,7 +507,7 @@ Modbus::ResultCode readSync(uint16_t Address, uint16_t start, uint16_t num, uint
     mb.readHreg(Address, start, buf, num, resCallback);
     while (mb.slave())
     {
-        delay(10);
+        delay(120);
         mb.task();
     }
     Modbus::ResultCode res = err;
@@ -537,18 +533,57 @@ bool dataStream(uint16_t address, uint16_t deviceId)
             return false;
         }
         else
-        { // dataStream(address,deviceId);
+        {       // dataStream(address,deviceId);
 
             if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
             {
                 Serial.println("OK 2");
                 meshTimer = 0;
-                convertMfdFloats();
-                return true;
+                convertMfdFloats();return true;
             }
             else
             {
                 if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                {
+                    Serial.println("OK 2");
+                    meshTimer = 0;
+                    convertMfdFloats();return true;
+                }
+                else
+                {
+if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                {
+                    Serial.println("OK 2");
+                    meshTimer = 0;
+                    convertMfdFloats();return true;
+                }
+                else
+                {
+if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                {
+                    Serial.println("OK 2");
+                    meshTimer = 0;
+                    convertMfdFloats();return true;
+                }
+                else
+                {
+if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                {
+                    Serial.println("OK 2");
+                    meshTimer = 0;
+                    convertMfdFloats();return true;
+                }
+                else
+                {
+if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                {
+                    Serial.println("OK 2");
+                    meshTimer = 0;
+                    convertMfdFloats();return true;
+                }
+                else
+                {
+if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
                 {
                     Serial.println("OK 2");
                     meshTimer = 0;
@@ -557,58 +592,8 @@ bool dataStream(uint16_t address, uint16_t deviceId)
                 }
                 else
                 {
-                    if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                    {
-                        Serial.println("OK 2");
-                        meshTimer = 0;
-                        convertMfdFloats();
-                        return true;
-                    }
-                    else
-                    {
-                        if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                        {
-                            Serial.println("OK 2");
-                            meshTimer = 0;
-                            convertMfdFloats();
-                            return true;
-                        }
-                        else
-                        {
-                            if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                            {
-                                Serial.println("OK 2");
-                                meshTimer = 0;
-                                convertMfdFloats();
-                                return true;
-                            }
-                            else
-                            {
-                                if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                                {
-                                    Serial.println("OK 2");
-                                    meshTimer = 0;
-                                    convertMfdFloats();
-                                    return true;
-                                }
-                                else
-                                {
-                                    if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                                    {
-                                        Serial.println("OK 2");
-                                        meshTimer = 0;
-                                        convertMfdFloats();
-                                        return true;
-                                    }
-                                    else
-                                    {
-                                        return false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                    return false;
+                }                }                }                }                }                }
             }
         }
     }
@@ -644,10 +629,12 @@ String readMfd(uint16_t devId, uint16_t address, uint8_t iteration){
      msgMfd.concat(iteration);
      msgMfd.concat(",");
 
+     msgMfd.concat(mfdValues[0]);
+     msgMfd.concat(",");
      for (uint8_t i = 0; i <= 23; i++)
      {
          msgMfd.concat(mfdValues[i]);
-         if (i <= 22)
+         if (i <= 23)
          {
              msgMfd.concat(",");
          }
