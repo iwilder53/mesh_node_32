@@ -7,19 +7,19 @@
 #include <SPIFFS.h>
 #include <ModbusRTU.h>
 #include <Arduino_JSON.h>
-
+#define ESP8266
 #include "LiquidCrystal_I2C.h"
 #define relayPin 5
 #define MAX485_DE_RE 5
-#define sendLed 34
-#define connLed 32
+#define sendLed 26
+#define connLed 26
 #define BUTTON_PIN 0
-
+#define ROLE LMH_1
 #define CS_PIN 5
 #define CLOCK_PIN 18
 #define MOSI_PIN 23
 #define MISO_PIN 19
-#include <AsyncTCP.h>
+//#include <AsyncTCP.h>
 #define MESH_PORT 5555 // Mesh Port should be same for all  nodes in Mesh Network
 
 uint32_t mfdVals[25];
@@ -67,7 +67,7 @@ uint16_t meshTimer;
 boolean rootStorage = true;
 TaskHandle_t meshTaskHandle_t;
 TaskHandle_t mfdTaskHandle_t = NULL;
-uint32_t meshNodes[4] = {2137584946,3520592757,2989895757};
+uint32_t meshNodes[4] = {2137584946,2989895757,3520592757};
 xSemaphoreHandle xMutex;
 
 // User stub
@@ -79,8 +79,7 @@ void sendMFD();
 //void lcdShiet( void *random);
 //void meshUpdate(void *random);
 void vApplicationIdleHook( void );
-void schedulerUpdate(void *random);
-void writeToCard();
+void schedulerUpdate(void *random);void writeToCard();
 void writeTimeToCard();
 void blink_con_led();
 String readMfd(uint16_t devId, uint16_t address, uint8_t iteration);
@@ -127,16 +126,13 @@ void updateTime()
 Task taskUpdateTime(TASK_SECOND * 1, TASK_FOREVER, &updateTime); // Set task second to send msg in a time interval (Here interval is 4 second)
 Task taskSendMsgSd(TASK_MILLISECOND * 200, TASK_FOREVER, &sendMsgSd); // Set task second to send msg in a time interval
 Task taskReadMfd(TASK_MINUTE * 2, TASK_FOREVER, &read_Mfd_Task); // Set task second to send msg in a time interval (Here interval is 4 second)
-Task taskMultiMfdRead(TASK_SECOND * 5 , TASK_FOREVER, &multi_mfd_read); // Set task second to send msg in a time interval (Here interval is 4 second)
+Task taskMultiMfdRead(TASK_SECOND * 15 , TASK_FOREVER, &multi_mfd_read); // Set task second to send msg in a time interval (Here interval is 4 second)
 Task updateLcd(TASK_SECOND * 3 , TASK_FOREVER, &lcdUpdate); // Set task second to send msg in a time interval (Here interval is 4 second)
-Task taaskUpdateLed(TASK_SECOND * 3 , TASK_FOREVER, &ledUpdate); // Set task second to send msg in a time interval (Here interval is 4 second)
-Task task_blink_con_led(TASK_SECOND * 3 , TASK_FOREVER, &blink_con_led); // Set task second to send msg in a time interval (Here interval is 4 second)
 
 
 //runs when node recieves something
 void receivedCallback(uint32_t from, String &msg)
-{  task_blink_con_led.enable();
-taaskUpdateLed.enable();        taskSendMsgSd.enableIfNot();
+{      taskSendMsgSd.enableIfNot();
 
     JSONVar msgConfig = JSON.parse(msg);
     if(msgConfig.hasOwnProperty("meshNodes")  ){
@@ -178,8 +174,6 @@ if(String(configType) == "config")
 void newConnectionCallback(uint32_t nodeId)
 {    //rssi = WiFi.RSSI();
 
-    taaskUpdateLed.enable();
-    task_blink_con_led.enable();
     connectedNode = nodeId;
      for ( uint8_t i = 0;i < 4; i++){
 
@@ -218,8 +212,7 @@ void changedConnectionCallback()
 // for internal timekeeping of the mesh
 
 void droppedConnection(uint32_t node_id)
-{   task_blink_con_led.disable();
-    taaskUpdateLed.disable();
+{  
     meshAlive = false;
     //lcd.setCursor(0, 1);
     //lcd.clear();
@@ -237,14 +230,12 @@ void setup()
     lcd.backlight();
     lcd.blink_off();
     Serial.begin(115200);
-
     Serial2.begin(9600, SERIAL_8E1);
     mb.begin(&Serial2);
     mb.master();
-    xMutex = xSemaphoreCreateMutex();
 
     // parsing the config
-   // esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
     esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_LR);
 
     SPIFFS.begin();
@@ -340,24 +331,18 @@ void setup()
     userScheduler.addTask(taskSendMsgSd);
     userScheduler.addTask(taskMultiMfdRead);
     userScheduler.addTask(updateLcd);
-  //  userScheduler.addTask(taaskUpdateLed);
     updateLcd.enable();
-  //  userScheduler.addTask(task_blink_con_led);
     userScheduler.addTask(taskReadMfd);
     taskReadMfd.enableDelayed(15000);
-     
+    
+    mesh.initOTAReceive(ROLE);
+
      SPIFFS.end();
      taskUpdateTime.enable();
-     //set IO pins
-     pinMode(A0, INPUT);           // Define A0 pin as INPUT
-     //pinMode(LED_BUILTIN, OUTPUT); // Define LED_BUILTIN as OUTPUT
-     //digitalWrite(LED_BUILTIN, HIGH);
-     //pinMode(sendLed, OUTPUT);
      pinMode(connLed, OUTPUT);
-     pinMode(relayPin, OUTPUT);
-     digitalWrite(relayPin, LOW); // Initially the LED will be off
-                                   xTaskCreatePinnedToCore(meshUpdate, "meshTask", 40000, meshTaskHandle_t, 3, NULL, 0);
-                                  //  xTaskCreatePinnedToCore(lcdShiet, "lcdTask", 10000, NULL, 3, NULL, 0);
+    //xTaskCreatePinnedToCore(meshUpdate, "meshTask", 40000, meshTaskHandle_t, 3, NULL, 0);
+    //xTaskCreatePinnedToCore(lcdShiet, "lcdTask", 10000, NULL, 3, NULL, 0);
+    //xTaskCreatePinnedToCore(schedulerUpdate, "schedulerUpdate", 16000, NULL, 2, NULL,1);
 
      lcd.clear();
      lcd.print("Hetadatain");
@@ -386,30 +371,29 @@ void setup()
     //button.begin();
     // Add the callback function to be called when the button is pressed.
    // button.onPressed();*/
-     xTaskCreatePinnedToCore(schedulerUpdate, "show led shiet", 8000, NULL, 2, NULL,1);
 }
 void meshUpdate(void *random)
 {
 
     for (;;)
     {
-       
+{           mesh.update();
+
         vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
     }
-}void schedulerUpdate(void *random)
+}}void schedulerUpdate(void *random)
 {
 
     for (;;)
     {
-        
+            userScheduler.execute();
+
         vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
     }
 }
 void loop()
-{   
+{
     // it will run the  scheduler as well
-    mesh.update();
-    userScheduler.execute();
     //updateRssi(); //maintains the led flash frequency
     //watchdog
     if (wdt == 180 || dropCounter > 5)
@@ -418,7 +402,7 @@ void loop()
         while (1)
             ;
     }
-if(rebootTime > 10000){ writeTimeToCard(); ESP.restart();}
+if(rebootTime > 1200){ writeTimeToCard(); ESP.restart();}
 }
 //to dump data from internal storage
 void sendMsgSd()
@@ -508,28 +492,6 @@ void writePosToCard()
     }
     SPIFFS.end();
 }
-//to blink the LED
-void blink_con_led()
-{
-
-    if (led_active == true)
-    {
-        digitalWrite(connLed, HIGH);
-        delay(led_refresh);
-        digitalWrite(connLed, LOW);
-
-        led_active = false;
-    }
-
-    else
-    {
-        digitalWrite(connLed, LOW);
-        delay(led_refresh);
-        digitalWrite(connLed, HIGH);
-        led_active = true;
-    }
-}
-
 boolean read_Mfd_Task()
 {  
     MCP_Sent = false;
@@ -679,30 +641,47 @@ void convertMfdFloats(){
 }
 String readMfd(uint16_t devId, uint16_t address, uint8_t iteration){
      String msgMfd;
-    if( dataStream(address, devId)){
-     msgMfd += time_to_print;
-     msgMfd.concat(",");
-     msgMfd.concat(id);
-     msgMfd.concat(",");
-     msgMfd.concat("7");
-     msgMfd.concat(",");
-     msgMfd.concat(devId); 
-     msgMfd.concat(",");
-     msgMfd.concat(iteration);
-     msgMfd.concat(",");
+  //   updateLcd.disable();
+     lcd.clear();
+     lcd.print("Reading device");
+     lcd.setCursor(0, 2);
+     lcd.print(String(devId));
+     if (dataStream(address, devId))
 
-     for (uint8_t i = 0; i <= 23; i++)
      {
-         msgMfd.concat(mfdValues[i]);
-         if (i <= 22)
-         {
-             msgMfd.concat(",");
-         }
-     }
-     String msgToSend = msgMfd;
+         msgMfd += time_to_print;
+         msgMfd.concat(",");
+         msgMfd.concat(id);
+         msgMfd.concat(",");
+         msgMfd.concat(devId);
+         msgMfd.concat(",");
+         msgMfd.concat("13");
+         msgMfd.concat(",");
+         msgMfd.concat(iteration);
+         msgMfd.concat(",");
 
-     return msgToSend;}
-     else {
+         for (uint8_t i = 0; i <= 23; i++)
+         {
+             msgMfd.concat(mfdValues[i]);
+             if (i <= 22)
+             {
+                 msgMfd.concat(",");
+             }
+         }
+         lcd.clear();
+         lcd.setCursor(0, 2);
+         lcd.print("Success");
+         delay(500);
+         String msgToSend = msgMfd;
+
+         return msgToSend;
+     }
+     else
+     {
+         lcd.clear();
+         lcd.setCursor(0, 2);
+         lcd.print("Failed");
+         delay(500);
          return String(__null);
          mfd_read_pos++;
          taskMultiMfdRead.restart();
@@ -728,11 +707,9 @@ void multi_mfd_read()
     mfd_read_pos++;
     if (mfd_read_pos >= device_count)
     {  
-        Serial2.end(); /* writeTimeToCard(); void writePosToCard();
-ESP.restart();*/
+        Serial2.end();
         mfd_read_pos = 0;
         taskMultiMfdRead.disable();
-
     if (rootStorage == true)
     {
         taskSendMsgSd.enable();
@@ -762,7 +739,7 @@ void saveToCard(String &payload, uint16_t wdtOld)
 }
 //sending data to root
 void sendPayload(String &payload)
-{    digitalWrite(connLed,HIGH); 
+{    digitalWrite(connLed,HIGH);
     uint16_t wdtOld = wdt;
 
     wdt = 0;
@@ -773,12 +750,7 @@ void sendPayload(String &payload)
         // digitalWrite(sendLed, HIGH);
         taskSendMsgSd.enable();
         mesh.sendSingle(root, String(payload));
-        if (rssi <= (-90))
-        {
-            mesh.sendSingle(root, (String(id) + ("signal Low ")));
-
-            delay(10);
-        }
+  
     }
     else
     {
@@ -793,7 +765,7 @@ boolean infoNow = true;
 void lcdUpdate()
 {
   
-  if (rebootTime == 86400)
+  if (rebootTime == 3600)
 {
     writeTimeToCard();
     ESP.restart();
@@ -905,7 +877,7 @@ void mfdConfig(){
     const char *MFD_SERIAL_ID_8 = doc["mfd_dev_id_8"];
     mfd_dev_id[7] = atoi(MFD_SERIAL_ID_8);
     Serial.println(mfd_dev_id[7]);
-}
+}/*
 void ledUpdate()
 {
     uint8_t signalStr = rssi;
@@ -938,7 +910,7 @@ void ledUpdate()
 
 }  
 
-
+*/
 
 /*
 void blinkLed(void* random){
