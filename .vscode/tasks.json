@@ -1,0 +1,33 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "cppbuild",
+			"label": "C/C++: xtensa-esp32-elf-gcc build active file",
+			"command": "/Users/ichinwilder/.platformio/packages/toolchain-xtensa32@2.50200.97/bin/xtensa-esp32-elf-gcc",
+			"args": [
+				"-g",
+				"${file}",
+				"-o",
+				"${fileDirname}/${fileBasenameNoExtension}",
+				"-mlongcalls"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build",
+			"detail": "compiler: /Users/ichinwilder/.platformio/packages/toolchain-xtensa32@2.50200.97/bin/xtensa-esp32-elf-gcc"
+		},
+		{
+			"type": "PlatformIO",
+			"task": "Pre-Debug",
+			"problemMatcher": [
+				"$platformio"
+			],
+			"label": "PlatformIO: Build in debug mode"
+		}
+	]
+}

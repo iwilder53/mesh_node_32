@@ -14,7 +14,8 @@
 #define sendLed 26
 #define connLed 26
 #define BUTTON_PIN 0
-#define ROLE LMH_1
+#define ROLE "LMH_1"
+#define VERSION "SpyderEye v1.0.2"
 #define CS_PIN 5
 #define CLOCK_PIN 18
 #define MOSI_PIN 23
@@ -22,12 +23,21 @@
 //#include <AsyncTCP.h>
 #define MESH_PORT 5555 // Mesh Port should be same for all  nodes in Mesh Network
 
+
+#include <SPI.h>              // include libraries
+#include <LoRa.h>
+
+const long frequency = 915E6;  // LoRa Frequency
+
+const int csPin = 10;          // LoRa radio chip select
+const int resetPin = 9;        // LoRa radio reset
+const int irqPin = 2;          // change for your board; must be a hardware interrupt pin
+
 uint32_t mfdVals[25];
 //objects declaraation
 
 Modbus::ResultCode err;
 LiquidCrystal_I2C lcd(0x27, 20, 4);
-
 Scheduler userScheduler; // to control your personal task
 painlessMesh mesh;
 ModbusRTU mb;
@@ -72,6 +82,7 @@ xSemaphoreHandle xMutex;
 
 // User stub
   void  mfdConfig();
+void onTxDone();
 
 void blinkLed(void* random);
 void updateTime();
@@ -210,6 +221,10 @@ void changedConnectionCallback()
     mesh.sendSingle(root, nMap);
 }
 // for internal timekeeping of the mesh
+void onTxDone() {
+  Serial.println("TxDone");
+ 
+}
 
 void droppedConnection(uint32_t node_id)
 {  
@@ -234,10 +249,15 @@ void setup()
     mb.begin(&Serial2);
     mb.master();
 
-    // parsing the config
-    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
-    esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_LR);
+  LoRa.setPins(csPin, resetPin, irqPin);
 
+  if (!LoRa.begin(frequency)) {
+    Serial.println("LoRa init failed. Check your connections.");
+    while (true);                       // if failed, do nothing
+  } LoRa.onTxDone(onTxDone);
+    // parsing the config
+  /*  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B);
+    esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B);*/ esp_wifi_set_max_tx_power(82);
     SPIFFS.begin();
 
     File configFile = SPIFFS.open("/config.json", "r");
@@ -319,8 +339,8 @@ void setup()
     //start the mesh
     mesh.setDebugMsgTypes(ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE); // all types on
     //int channel = 13;
-    mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_AP_STA, 13);
-    mesh.setContainsRoot(true);
+    mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_STA, 13);
+  //  mesh.setContainsRoot(true);
 
     mesh.onReceive(&receivedCallback);
     mesh.onNewConnection(&newConnectionCallback);
@@ -335,14 +355,14 @@ void setup()
     userScheduler.addTask(taskReadMfd);
     taskReadMfd.enableDelayed(15000);
     
-    mesh.initOTAReceive(ROLE);
+  //  mesh.initOTAReceive(ROLE);
 
      SPIFFS.end();
      taskUpdateTime.enable();
      pinMode(connLed, OUTPUT);
-    //xTaskCreatePinnedToCore(meshUpdate, "meshTask", 40000, meshTaskHandle_t, 3, NULL, 0);
+    xTaskCreatePinnedToCore(meshUpdate, "meshTask", 40000, meshTaskHandle_t, 3, NULL, 0);
     //xTaskCreatePinnedToCore(lcdShiet, "lcdTask", 10000, NULL, 3, NULL, 0);
-    //xTaskCreatePinnedToCore(schedulerUpdate, "schedulerUpdate", 16000, NULL, 2, NULL,1);
+    xTaskCreatePinnedToCore(schedulerUpdate, "schedulerUpdate", 16000, NULL, 2, NULL,1);
 
      lcd.clear();
      lcd.print("Hetadatain");
@@ -611,6 +631,13 @@ bool dataStream(uint16_t address, uint16_t deviceId)
                                     }
                                     else
                                     {
+                                        uint8_t j = 0;
+                                        // String msgMfd;
+                                        for (uint8_t i = 0; i <= 48; i++)
+                                        {
+                                            mfdValues[i] = 0;
+                                        }
+
                                         return false;
                                     }
                                 }
@@ -632,61 +659,78 @@ void convertMfdFloats(){
 
         uint16_t temp1[2] = {hregs2[i], hregs2[i + 1]};
         memcpy(&mfdValues[j], temp1, 32);
-        Serial.println(mfdValues[j]);
-        j++;
-        i++;
-    }
 
+    }}
+        String readMfd(uint16_t devId, uint16_t address, uint8_t iteration)
+        {
+            String msgMfd;
+            //   updateLcd.disable();
+            lcd.clear();
+            time_to_print = ts_epoch;
 
-}
-String readMfd(uint16_t devId, uint16_t address, uint8_t iteration){
-     String msgMfd;
-  //   updateLcd.disable();
-     lcd.clear();
-     lcd.print("Reading device");
-     lcd.setCursor(0, 2);
-     lcd.print(String(devId));
-     if (dataStream(address, devId))
+            lcd.print("Reading device");
+            lcd.setCursor(0, 2);
+            lcd.print(String(devId));
+            if (dataStream(address, devId))
 
-     {
-         msgMfd += time_to_print;
-         msgMfd.concat(",");
-         msgMfd.concat(id);
-         msgMfd.concat(",");
-         msgMfd.concat(devId);
-         msgMfd.concat(",");
-         msgMfd.concat("13");
-         msgMfd.concat(",");
-         msgMfd.concat(iteration);
-         msgMfd.concat(",");
+            {
+                msgMfd += time_to_print;
+                msgMfd.concat(",");
+                msgMfd.concat(id);
+                msgMfd.concat(",");
+                msgMfd.concat(devId);
+                msgMfd.concat(",");
+                msgMfd.concat("12");
+                msgMfd.concat(",");
+                msgMfd.concat(iteration);
+                msgMfd.concat(",");
 
-         for (uint8_t i = 0; i <= 23; i++)
-         {
-             msgMfd.concat(mfdValues[i]);
-             if (i <= 22)
-             {
-                 msgMfd.concat(",");
-             }
-         }
-         lcd.clear();
-         lcd.setCursor(0, 2);
-         lcd.print("Success");
-         delay(500);
-         String msgToSend = msgMfd;
+                for (uint8_t i = 0; i <= 23; i++)
+                {
+                    msgMfd.concat(mfdValues[i]);
+                    if (i <= 22)
+                    {
+                        msgMfd.concat(",");
+                    }
+                }
+                lcd.clear();
+                lcd.setCursor(0, 2);
+                lcd.print("Success");
+                delay(500);
+                String msgToSend = msgMfd;
 
-         return msgToSend;
-     }
-     else
-     {
-         lcd.clear();
-         lcd.setCursor(0, 2);
-         lcd.print("Failed");
-         delay(500);
-         return String(__null);
-         mfd_read_pos++;
-         taskMultiMfdRead.restart();
-     }
-}
+                return msgToSend;
+            }
+            else
+            {
+                lcd.clear();
+                lcd.setCursor(0, 2);
+                lcd.print("Failed");
+                delay(500);
+                mfd_read_pos++;
+                taskMultiMfdRead.restart();
+                msgMfd += time_to_print;
+                msgMfd.concat(",");
+                msgMfd.concat(id);
+                msgMfd.concat(",");
+                msgMfd.concat(devId);
+                msgMfd.concat(",");
+                msgMfd.concat("13");
+                msgMfd.concat(",");
+                msgMfd.concat(iteration);
+                msgMfd.concat(",");
+
+                for (uint8_t i = 0; i <= 23; i++)
+                {
+                    msgMfd.concat(mfdValues[i]);
+                    if (i <= 22)
+                    {
+                        msgMfd.concat(",");
+                    }
+                }
+                return msgMfd;
+            }
+        }
 void multi_mfd_read()
 {   
    
@@ -877,49 +921,15 @@ void mfdConfig(){
     const char *MFD_SERIAL_ID_8 = doc["mfd_dev_id_8"];
     mfd_dev_id[7] = atoi(MFD_SERIAL_ID_8);
     Serial.println(mfd_dev_id[7]);
-}/*
-void ledUpdate()
-{
-    uint8_t signalStr = rssi;
-    signalStr = signalStr * (-1);
-    if (signalStr > 90)
-    {
-        task_blink_con_led.setInterval(TASK_SECOND * 2);
-    }
+}
+void LoRa_txMode(){
+  LoRa.idle();                          // set standby mode
+  LoRa.disableInvertIQ();               // normal mode
+}
 
-  if (signalStr < 90 && signalStr > 80)
-    {
-        task_blink_con_led.setInterval(TASK_SECOND * 1);
-    }
-  if (signalStr < 80 && signalStr > 70)
-    {
-        task_blink_con_led.setInterval(TASK_MILLISECOND * 700);
-    }
-  if (signalStr < 70 )
-    { 
-        task_blink_con_led.setInterval(TASK_MILLISECOND * 50 );
-    }
-
-
-
-
-
-
-
-
-
-}  
-
-*/
-
-/*
-void blinkLed(void* random){
-
-
-
-for{;;}{
-
-
-blink_con_led();
-
-}*/
+void LoRa_sendMessage(String message) {
+  LoRa_txMode();                        // set tx mode
+  LoRa.beginPacket();                   // start packet
+  LoRa.print(message);                  // add payload
+  LoRa.endPacket(true);                 // finish packet and send it
+}
