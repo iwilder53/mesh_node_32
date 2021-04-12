@@ -23,15 +23,14 @@
 //#include <AsyncTCP.h>
 #define MESH_PORT 5555 // Mesh Port should be same for all  nodes in Mesh Network
 
-
-#include <SPI.h>              // include libraries
+#include <SPI.h> // include libraries
 #include <LoRa.h>
 
-const long frequency = 915E6;  // LoRa Frequency
+const long frequency = 915E6; // LoRa Frequency
 
-const int csPin = 10;          // LoRa radio chip select
-const int resetPin = 9;        // LoRa radio reset
-const int irqPin = 2;          // change for your board; must be a hardware interrupt pin
+const int csPin = 10;   // LoRa radio chip select
+const int resetPin = 9; // LoRa radio reset
+const int irqPin = 2;   // change for your board; must be a hardware interrupt pin
 
 uint32_t mfdVals[25];
 //objects declaraation
@@ -42,10 +41,10 @@ Scheduler userScheduler; // to control your personal task
 painlessMesh mesh;
 ModbusRTU mb;
 //variables
-uint8_t mfd_read_pos = 0,sdQueue;
+uint8_t mfd_read_pos = 0, sdQueue;
 uint16_t hregs2[96];
 float mfdValues[25];
-String ssid,password;
+String ssid, password;
 int relay_pin_0_min, relay_pin_0_max, relay_pin_1_min, relay_pin_1_max, relay_pin_2_min, relay_pin_2_max, relay_pin_3_min, relay_pin_3_max, relay_pin_04_min, relay_pin_04_max, relay_pin_05_min, relay_pin_05_max, relay_pin_06_min, relay_pin_06_max, relay_pin_07_min, relay_pin_07_max; // Mesh Port should be same for all  nodes in Mesh Network
 int bmeRelay_t_Min, bmeRelay_t_Max, bmeRelay_p_Max, bmeRelay_h_Max, bmeRelay_h_Min, bmeRelay_p_Min;
 int device_count;
@@ -57,7 +56,7 @@ int wdt = 0;
 int ts_epoch;
 int timeIndex;
 int rebootTime;
- uint8_t dropCounter = 0;
+uint8_t dropCounter = 0;
 int pos;
 uint32_t root;
 long previousMillis = 0;
@@ -77,20 +76,21 @@ uint16_t meshTimer;
 boolean rootStorage = true;
 TaskHandle_t meshTaskHandle_t;
 TaskHandle_t mfdTaskHandle_t = NULL;
-uint32_t meshNodes[4] = {2137584946,2989895757,3520592757};
+uint32_t meshNodes[4] = {2137584946, 2989895757, 3520592757};
 xSemaphoreHandle xMutex;
 
 // User stub
-  void  mfdConfig();
+void mfdConfig();
 void onTxDone();
 
-void blinkLed(void* random);
+void blinkLed(void *random);
 void updateTime();
 void sendMFD();
 //void lcdShiet( void *random);
 //void meshUpdate(void *random);
-void vApplicationIdleHook( void );
-void schedulerUpdate(void *random);void writeToCard();
+void vApplicationIdleHook(void);
+void schedulerUpdate(void *random);
+void writeToCard();
 void writeTimeToCard();
 void blink_con_led();
 String readMfd(uint16_t devId, uint16_t address, uint8_t iteration);
@@ -105,24 +105,26 @@ void sendPayload(String &payload);
 void saveToCard(String &payload);
 void updateRssi();
 void multi_mfd_read();
- void meshUpdate(void * random);
- void setConnectedNode();
-void convertMfdFloats();void writePosToCard();
- void setConnectedNode(){
+void meshUpdate(void *random);
+void setConnectedNode();
+void convertMfdFloats();
+void writePosToCard();
+void setConnectedNode()
+{
 
-    if(connectedNode == meshNodes[0]){
+    if (connectedNode == meshNodes[0])
+    {
         connectedNode = 0;
     }
-    else 
-    if(connectedNode == meshNodes[1]){
+    else if (connectedNode == meshNodes[1])
+    {
         connectedNode = 1;
-    }else 
-    if(connectedNode == meshNodes[1]){
+    }
+    else if (connectedNode == meshNodes[1])
+    {
         connectedNode = 2;
     }
-
-
- }
+}
 void updateTime()
 { //will update time from root && also watchdog
     //digitalWrite(sendLed, LOW);
@@ -134,43 +136,46 @@ void updateTime()
 }
 
 //Declarations for tasks scheduling
-Task taskUpdateTime(TASK_SECOND * 1, TASK_FOREVER, &updateTime); // Set task second to send msg in a time interval (Here interval is 4 second)
-Task taskSendMsgSd(TASK_MILLISECOND * 200, TASK_FOREVER, &sendMsgSd); // Set task second to send msg in a time interval
-Task taskReadMfd(TASK_MINUTE * 2, TASK_FOREVER, &read_Mfd_Task); // Set task second to send msg in a time interval (Here interval is 4 second)
-Task taskMultiMfdRead(TASK_SECOND * 15 , TASK_FOREVER, &multi_mfd_read); // Set task second to send msg in a time interval (Here interval is 4 second)
-Task updateLcd(TASK_SECOND * 3 , TASK_FOREVER, &lcdUpdate); // Set task second to send msg in a time interval (Here interval is 4 second)
-
+Task taskUpdateTime(TASK_SECOND * 1, TASK_FOREVER, &updateTime);        // Set task second to send msg in a time interval (Here interval is 4 second)
+Task taskSendMsgSd(TASK_MILLISECOND * 200, TASK_FOREVER, &sendMsgSd);   // Set task second to send msg in a time interval
+Task taskReadMfd(TASK_MINUTE * 2, TASK_FOREVER, &read_Mfd_Task);        // Set task second to send msg in a time interval (Here interval is 4 second)
+Task taskMultiMfdRead(TASK_SECOND * 15, TASK_FOREVER, &multi_mfd_read); // Set task second to send msg in a time interval (Here interval is 4 second)
+Task updateLcd(TASK_SECOND * 3, TASK_FOREVER, &lcdUpdate);              // Set task second to send msg in a time interval (Here interval is 4 second)
 
 //runs when node recieves something
 void receivedCallback(uint32_t from, String &msg)
-{      taskSendMsgSd.enableIfNot();
+{
+    taskSendMsgSd.enableIfNot();
 
     JSONVar msgConfig = JSON.parse(msg);
-    if(msgConfig.hasOwnProperty("meshNodes")  ){
-            Serial.println("got Config");
-     const char* ID =  msgConfig["id"] ;
-     File configFile;
-     const char* configType = msgConfig["meshNodes"];
-     Serial.print(ID);
-       if( String(ID) == id){
-           SPIFFS.begin();
-if(String(configType) == "config")
-           {
-           SPIFFS.remove("/config.json");
-           configFile = SPIFFS.open("/config.json","w");
-          }
-          else{
+    if (msgConfig.hasOwnProperty("meshNodes"))
+    {
+        Serial.println("got Config");
+        const char *ID = msgConfig["id"];
+        File configFile;
+        const char *configType = msgConfig["meshNodes"];
+        Serial.print(ID);
+        if (String(ID) == id)
+        {
+            SPIFFS.begin();
+            if (String(configType) == "config")
+            {
+                SPIFFS.remove("/config.json");
+                configFile = SPIFFS.open("/config.json", "w");
+            }
+            else
+            {
 
-           SPIFFS.remove("/mfdConf.json");
-           configFile = SPIFFS.open("/mfdConf.json","w");
-
-          }
-          configFile.print(msg);
-          configFile.close();
-          SPIFFS.end();
-       }
+                SPIFFS.remove("/mfdConf.json");
+                configFile = SPIFFS.open("/mfdConf.json", "w");
+            }
+            configFile.print(msg);
+            configFile.close();
+            SPIFFS.end();
+        }
     }
- if (msg == "rootFull"){
+    if (msg == "rootFull")
+    {
         rootStorage = false;
     }
 
@@ -179,22 +184,23 @@ if(String(configType) == "config")
         String strMsg = String(msg);
         ts_epoch = msg.toInt();
     }
- Serial.printf("startHere: Received from %u msg=%s\n", from, msg.c_str());
+    Serial.printf("startHere: Received from %u msg=%s\n", from, msg.c_str());
 }
 // runs when a new connection is established
 void newConnectionCallback(uint32_t nodeId)
-{    //rssi = WiFi.RSSI();
+{ //rssi = WiFi.RSSI();
 
     connectedNode = nodeId;
-     for ( uint8_t i = 0;i < 4; i++){
+    for (uint8_t i = 0; i < 4; i++)
+    {
 
-     if(connectedNode == meshNodes[i]){
-         connectedNode = i ;
-        
-         i = 4;
-     } 
+        if (connectedNode == meshNodes[i])
+        {
+            connectedNode = i;
 
- }
+            i = 4;
+        }
+    }
     meshAlive = true;
     Serial.printf("--> startHere: New Connection, nodeId = %u\n", nodeId);
     //String nMap = mesh.asNodeTree().toString();
@@ -202,10 +208,10 @@ void newConnectionCallback(uint32_t nodeId)
     if (mesh.startDelayMeas(root))
     {
         taskSendMsgSd.enable();
-     //  String configFile = String(String(id) + "," + String(root) + "," + String(mcp) + "," + String(mfd) + "," + String(pins) + "," + String(sendDelay));
-     //   mesh.sendSingle(root, configFile);
+        //  String configFile = String(String(id) + "," + String(root) + "," + String(mcp) + "," + String(mfd) + "," + String(pins) + "," + String(sendDelay));
+        //   mesh.sendSingle(root, configFile);
     }
-  //  taskConnLed.enable();
+    //  taskConnLed.enable();
 }
 //runs when the topology changes
 void changedConnectionCallback()
@@ -214,29 +220,28 @@ void changedConnectionCallback()
     if (rootStorage == true && mesh.isConnected(root))
     {
         taskSendMsgSd.enable();
-    }  
+    }
     meshAlive = true;
     Serial.printf("Changed connections\n");
     String nMap = mesh.subConnectionJson(true);
     mesh.sendSingle(root, nMap);
 }
 // for internal timekeeping of the mesh
-void onTxDone() {
-  Serial.println("TxDone");
- 
+void onTxDone()
+{
+    Serial.println("TxDone");
 }
 
 void droppedConnection(uint32_t node_id)
-{  
+{
     meshAlive = false;
     //lcd.setCursor(0, 1);
     //lcd.clear();
-   // lcd.println("Lost connection To : " + node_id);
+    // lcd.println("Lost connection To : " + node_id);
     digitalWrite(connLed, LOW);
     delay(3000);
-        rssi = 0;
-        dropCounter++;
-
+    rssi = 0;
+    dropCounter++;
 }
 void setup()
 {
@@ -249,15 +254,19 @@ void setup()
     mb.begin(&Serial2);
     mb.master();
 
-  LoRa.setPins(csPin, resetPin, irqPin);
+    LoRa.setPins(csPin, resetPin, irqPin);
 
-  if (!LoRa.begin(frequency)) {
-    Serial.println("LoRa init failed. Check your connections.");
-    while (true);                       // if failed, do nothing
-  } LoRa.onTxDone(onTxDone);
+    if (!LoRa.begin(frequency))
+    {
+        Serial.println("LoRa init failed. Check your connections.");
+        while (true)
+            ; // if failed, do nothing
+    }
+    LoRa.onTxDone(onTxDone);
     // parsing the config
-  /*  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B);
-    esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B);*/ esp_wifi_set_max_tx_power(82);
+    /*  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B);
+    esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B);*/
+    esp_wifi_set_max_tx_power(82);
     SPIFFS.begin();
 
     File configFile = SPIFFS.open("/config.json", "r");
@@ -294,21 +303,21 @@ void setup()
     const char *PINS = doc["pins"];
     const char *DELAY = doc["delay"];
 
-
     sendDelay = atoi(DELAY);
     Serial.print("Loaded id: ");
 
-     id = ID;    lcd.print("Loaded id: ");
+    id = ID;
+    lcd.print("Loaded id: ");
     lcd.print(id);
 
     Serial.println(ID);
     // Serial.print("Loaded root id: ");
-    root =  2137584946; 
+    root = 2137584946;
     Serial.println(ROOT);
     mcp = atoi(MCP);
     Serial.println(mcp);
 
-   // mfd = atoi(MFD);
+    // mfd = atoi(MFD);
     Serial.println(mfd);
     configFile.close();
 
@@ -340,7 +349,7 @@ void setup()
     mesh.setDebugMsgTypes(ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE); // all types on
     //int channel = 13;
     mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_STA, 13);
-  //  mesh.setContainsRoot(true);
+    //  mesh.setContainsRoot(true);
 
     mesh.onReceive(&receivedCallback);
     mesh.onNewConnection(&newConnectionCallback);
@@ -354,29 +363,29 @@ void setup()
     updateLcd.enable();
     userScheduler.addTask(taskReadMfd);
     taskReadMfd.enableDelayed(15000);
-    
-  //  mesh.initOTAReceive(ROLE);
 
-     SPIFFS.end();
-     taskUpdateTime.enable();
-     pinMode(connLed, OUTPUT);
+    //  mesh.initOTAReceive(ROLE);
+
+    SPIFFS.end();
+    taskUpdateTime.enable();
+    pinMode(connLed, OUTPUT);
     xTaskCreatePinnedToCore(meshUpdate, "meshTask", 40000, meshTaskHandle_t, 3, NULL, 0);
     //xTaskCreatePinnedToCore(lcdShiet, "lcdTask", 10000, NULL, 3, NULL, 0);
-    xTaskCreatePinnedToCore(schedulerUpdate, "schedulerUpdate", 16000, NULL, 2, NULL,1);
+    xTaskCreatePinnedToCore(schedulerUpdate, "schedulerUpdate", 16000, NULL, 2, NULL, 1);
 
-     lcd.clear();
-     lcd.print("Hetadatain");
+    lcd.clear();
+    lcd.print("Hetadatain");
 
-     delay(100);
-     lcd.setCursor(3, 1);
-     lcd.print("Spyder Eye");
-     for (uint8_t i = 3; i < 14; i++)
-     {
+    delay(100);
+    lcd.setCursor(3, 1);
+    lcd.print("Spyder Eye");
+    for (uint8_t i = 3; i < 14; i++)
+    {
 
-         lcd.setCursor(i, 1);
+        lcd.setCursor(i, 1);
 
-         lcd.print(".");
-         delay(200);
+        lcd.print(".");
+        delay(200);
     }
 
     lcd.setCursor(13, 1);
@@ -390,23 +399,26 @@ void setup()
     delay(300);
     //button.begin();
     // Add the callback function to be called when the button is pressed.
-   // button.onPressed();*/
+    // button.onPressed();*/
 }
 void meshUpdate(void *random)
 {
 
     for (;;)
     {
-{           mesh.update();
+        {
+            mesh.update();
 
-        vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
+            vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
+        }
     }
-}}void schedulerUpdate(void *random)
+}
+void schedulerUpdate(void *random)
 {
 
     for (;;)
     {
-            userScheduler.execute();
+        userScheduler.execute();
 
         vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
     }
@@ -422,26 +434,32 @@ void loop()
         while (1)
             ;
     }
-if(rebootTime > 1200){ writeTimeToCard(); ESP.restart();}
+    if (rebootTime > 1200)
+    {
+        writeTimeToCard();
+        ESP.restart();
+    }
 }
 //to dump data from internal storage
 void sendMsgSd()
-{   digitalWrite(connLed,HIGH);
+{
+    digitalWrite(connLed, HIGH);
     if (mesh.isConnected(root) && (rootStorage == true))
     {
         SPIFFS.begin();
         File file = SPIFFS.open("/offlinelog.txt", "r"); // FILE_READ is default so not realy needed but if you like to use this technique for e.g. write you need FILE_WRITE
                                                          //#endif
         if (!SPIFFS.exists("/offlinelog.txt"))
-        {   
+        {
             Serial.println("Failed to open file for reading");
             taskSendMsgSd.disable();
             pos = 0;
-            timeIndex = 0;  
+            timeIndex = 0;
             return;
         }
         String buffer;
-        for (int i = 0; i < 1; i++);
+        for (int i = 0; i < 1; i++)
+            ;
 
         {
             file.seek(pos);
@@ -450,7 +468,8 @@ void sendMsgSd()
             if (buffer != "")
             {
                 if (mesh.isConnected(root))
-                {   sdQueue++;
+                {
+                    sdQueue++;
                     mesh.sendSingle(root, msgSd);
                 }
                 else
@@ -465,19 +484,22 @@ void sendMsgSd()
             Serial.println(F("DONE Reading"));
         }
         if (buffer == "")
-        {   pos = 0;
+        {
+            pos = 0;
             String ackMsg = id;
             ackMsg += "sent from sd card";
             //mesh.sendSingle(root, ackMsg);
             SPIFFS.remove("/offlinelog.txt");
-            taskSendMsgSd.disable();//ESP.restart();
+            taskSendMsgSd.disable(); //ESP.restart();
         }
         if (sdQueue > 50)
-        {   sdQueue = 0;
+        {
+            sdQueue = 0;
             taskSendMsgSd.disable();
         }
         SPIFFS.end();
-    } digitalWrite(connLed,LOW);
+    }
+    digitalWrite(connLed, LOW);
 }
 
 void writeTimeToCard()
@@ -513,14 +535,14 @@ void writePosToCard()
     SPIFFS.end();
 }
 boolean read_Mfd_Task()
-{  
+{
     MCP_Sent = false;
     //  userScheduler.disableAll();
-    taskUpdateTime.enableIfNot(); 
+    taskUpdateTime.enableIfNot();
     // vTaskSuspend(meshTaskHandle_t);
     time_to_print = ts_epoch;
     taskMultiMfdRead.enable();
-   // xTaskCreate(multi_mfd_read,"readsMFD",20000,NULL,2,&mfdTaskHandle_t);
+    // xTaskCreate(multi_mfd_read,"readsMFD",20000,NULL,2,&mfdTaskHandle_t);
     return true;
 }
 
@@ -531,20 +553,20 @@ bool resCallback(Modbus::ResultCode event, uint16_t, void *)
 
 Modbus::ResultCode readSync(uint16_t Address, uint16_t start, uint16_t num, uint16_t *buf)
 {
-   // xSemaphoreTake(xMutex, portMAX_DELAY);
+    // xSemaphoreTake(xMutex, portMAX_DELAY);
     if (mb.slave())
     {
-    //    xSemaphoreGive(xMutex);
+        //    xSemaphoreGive(xMutex);
         return Modbus::EX_GENERAL_FAILURE;
     }
     Serial.printf("SlaveID: %d Hreg %d\n", Address, start);
     mb.readHreg(Address, start, buf, num, resCallback);
     while (mb.slave())
     {
-       mb.task();
+        mb.task();
     }
     Modbus::ResultCode res = err;
-  //  xSemaphoreGive(xMutex);
+    //  xSemaphoreGive(xMutex);
     return res;
 }
 bool dataStream(uint16_t address, uint16_t deviceId)
@@ -650,7 +672,8 @@ bool dataStream(uint16_t address, uint16_t deviceId)
     }
 }
 
-void convertMfdFloats(){
+void convertMfdFloats()
+{
 
     uint8_t j = 0;
     // String msgMfd;
@@ -659,105 +682,105 @@ void convertMfdFloats(){
 
         uint16_t temp1[2] = {hregs2[i], hregs2[i + 1]};
         memcpy(&mfdValues[j], temp1, 32);
+    }
+}
+String readMfd(uint16_t devId, uint16_t address, uint8_t iteration)
+{
+    String msgMfd;
+    //   updateLcd.disable();
+    lcd.clear();
+    time_to_print = ts_epoch;
 
-    }}
-        String readMfd(uint16_t devId, uint16_t address, uint8_t iteration)
+    lcd.print("Reading device");
+    lcd.setCursor(0, 2);
+    lcd.print(String(devId));
+    if (dataStream(address, devId))
+
+    {
+        msgMfd += time_to_print;
+        msgMfd.concat(",");
+        msgMfd.concat(id);
+        msgMfd.concat(",");
+        msgMfd.concat(devId);
+        msgMfd.concat(",");
+        msgMfd.concat("12");
+        msgMfd.concat(",");
+        msgMfd.concat(iteration);
+        msgMfd.concat(",");
+
+        for (uint8_t i = 0; i <= 23; i++)
         {
-            String msgMfd;
-            //   updateLcd.disable();
-            lcd.clear();
-            time_to_print = ts_epoch;
-
-            lcd.print("Reading device");
-            lcd.setCursor(0, 2);
-            lcd.print(String(devId));
-            if (dataStream(address, devId))
-
+            msgMfd.concat(mfdValues[i]);
+            if (i <= 22)
             {
-                msgMfd += time_to_print;
                 msgMfd.concat(",");
-                msgMfd.concat(id);
-                msgMfd.concat(",");
-                msgMfd.concat(devId);
-                msgMfd.concat(",");
-                msgMfd.concat("12");
-                msgMfd.concat(",");
-                msgMfd.concat(iteration);
-                msgMfd.concat(",");
-
-                for (uint8_t i = 0; i <= 23; i++)
-                {
-                    msgMfd.concat(mfdValues[i]);
-                    if (i <= 22)
-                    {
-                        msgMfd.concat(",");
-                    }
-                }
-                lcd.clear();
-                lcd.setCursor(0, 2);
-                lcd.print("Success");
-                delay(500);
-                String msgToSend = msgMfd;
-
-                return msgToSend;
-            }
-            else
-            {
-                lcd.clear();
-                lcd.setCursor(0, 2);
-                lcd.print("Failed");
-                delay(500);
-                mfd_read_pos++;
-                taskMultiMfdRead.restart();
-                msgMfd += time_to_print;
-                msgMfd.concat(",");
-                msgMfd.concat(id);
-                msgMfd.concat(",");
-                msgMfd.concat(devId);
-                msgMfd.concat(",");
-                msgMfd.concat("13");
-                msgMfd.concat(",");
-                msgMfd.concat(iteration);
-                msgMfd.concat(",");
-
-                for (uint8_t i = 0; i <= 23; i++)
-                {
-                    msgMfd.concat(mfdValues[i]);
-                    if (i <= 22)
-                    {
-                        msgMfd.concat(",");
-                    }
-                }
-                return msgMfd;
             }
         }
+        lcd.clear();
+        lcd.setCursor(0, 2);
+        lcd.print("Success");
+        delay(500);
+        String msgToSend = msgMfd;
+
+        return msgToSend;
+    }
+    else
+    {
+        lcd.clear();
+        lcd.setCursor(0, 2);
+        lcd.print("Failed");
+        delay(500);
+        mfd_read_pos++;
+        taskMultiMfdRead.restart();
+        msgMfd += time_to_print;
+        msgMfd.concat(",");
+        msgMfd.concat(id);
+        msgMfd.concat(",");
+        msgMfd.concat(devId);
+        msgMfd.concat(",");
+        msgMfd.concat("13");
+        msgMfd.concat(",");
+        msgMfd.concat(iteration);
+        msgMfd.concat(",");
+
+        for (uint8_t i = 0; i <= 23; i++)
+        {
+            msgMfd.concat(mfdValues[i]);
+            if (i <= 22)
+            {
+                msgMfd.concat(",");
+            }
+        }
+        return msgMfd;
+    }
+}
 void multi_mfd_read()
-{   
-   
-        time_to_print++; //set the time for mfd data to be in sync
-        Serial2.end();
-        Serial2.begin(9600, SERIAL_8E1);
+{
 
-    msgMfd_payload[0] = readMfd(mfd_dev_id[mfd_read_pos],100,1);
+    time_to_print++; //set the time for mfd data to be in sync
+    Serial2.end();
+    Serial2.begin(9600, SERIAL_8E1);
+
+    msgMfd_payload[0] = readMfd(mfd_dev_id[mfd_read_pos], 100, 1);
     vTaskDelay(100 / portTICK_RATE_MS);
-    msgMfd_payload[1] = readMfd(mfd_dev_id[mfd_read_pos],148,2);
-    msgMfd_payload[2] = readMfd(mfd_dev_id[mfd_read_pos],242,3);
-  //  msgMfd_payload[3] = readMfd(mfd_dev_id[mfd_read_pos],290,2);
-
+    msgMfd_payload[1] = readMfd(mfd_dev_id[mfd_read_pos], 148, 2);
+    msgMfd_payload[2] = readMfd(mfd_dev_id[mfd_read_pos], 242, 3);
+    //  msgMfd_payload[3] = readMfd(mfd_dev_id[mfd_read_pos],290,2);
 
     delay(10);
     sendMFD();
     Serial2.flush();
     mfd_read_pos++;
     if (mfd_read_pos >= device_count)
-    {  
+    {
         Serial2.end();
         mfd_read_pos = 0;
         taskMultiMfdRead.disable();
-    if (rootStorage == true)
-    {
-        taskSendMsgSd.enable();
-    }    }
+        if (rootStorage == true)
+        {
+            taskSendMsgSd.enable();
+        }
+    }
 }
 
 void sendMFD()
@@ -765,15 +788,13 @@ void sendMFD()
     for (uint8_t i = 0; i < 3; i++)
     {
         sendPayload(msgMfd_payload[i]);
-    }        
-
-
+    }
 }
 //writing data to card
 void saveToCard(String &payload, uint16_t wdtOld)
 {
     SPIFFS.begin();
-    wdt  = wdtOld;
+    wdt = wdtOld;
     File dataFile = SPIFFS.open("/offlinelog.txt", "a");
     Serial.println("current data size : ");
     Serial.println(dataFile.size());
@@ -783,7 +804,8 @@ void saveToCard(String &payload, uint16_t wdtOld)
 }
 //sending data to root
 void sendPayload(String &payload)
-{    digitalWrite(connLed,HIGH);
+{
+    digitalWrite(connLed, HIGH);
     uint16_t wdtOld = wdt;
 
     wdt = 0;
@@ -794,26 +816,25 @@ void sendPayload(String &payload)
         // digitalWrite(sendLed, HIGH);
         taskSendMsgSd.enable();
         mesh.sendSingle(root, String(payload));
-  
     }
     else
     {
         saveToCard(payload, wdtOld);
-    }digitalWrite(connLed,LOW); 
+    }
+    digitalWrite(connLed, LOW);
 }
 
 boolean infoNow = true;
 //uint8_t lcdState; //periodic restart to avoid memory fragmentation
 
-
 void lcdUpdate()
 {
-  
-  if (rebootTime == 3600)
-{
-    writeTimeToCard();
-    ESP.restart();
-}
+
+    if (rebootTime == 3600)
+    {
+        writeTimeToCard();
+        ESP.restart();
+    }
     //lcd.init();
 
     if (infoNow == true)
@@ -853,15 +874,17 @@ void lcdUpdate()
         lcd.print("Signal :");
         lcd.setCursor(9, 1);
         lcd.print(String(WiFi.RSSI()) + "db");
-      /*  lcd.clear();
+        /*  lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("Free Ram :");
         lcd.setCursor(3, 1);
         lcd.print(String(ESP.getFreeHeap()));*/
-  
-   // vTaskDelay(120000/portTICK_RATE_MS);
-}}
-void mfdConfig(){
+
+        // vTaskDelay(120000/portTICK_RATE_MS);
+    }
+}
+void mfdConfig()
+{
 
     SPIFFS.begin();
 
@@ -913,7 +936,7 @@ void mfdConfig(){
     const char *MFD_SERIAL_ID_6 = doc["mfd_dev_id_6"];
     mfd_dev_id[5] = atoi(MFD_SERIAL_ID_6);
     Serial.println(mfd_dev_id[5]);
- 
+
     const char *MFD_SERIAL_ID_7 = doc["mfd_dev_id_7"];
     mfd_dev_id[6] = atoi(MFD_SERIAL_ID_7);
     Serial.println(mfd_dev_id[6]);
@@ -922,14 +945,16 @@ void mfdConfig(){
     mfd_dev_id[7] = atoi(MFD_SERIAL_ID_8);
     Serial.println(mfd_dev_id[7]);
 }
-void LoRa_txMode(){
-  LoRa.idle();                          // set standby mode
-  LoRa.disableInvertIQ();               // normal mode
+void LoRa_txMode()
+{
+    LoRa.idle();            // set standby mode
+    LoRa.disableInvertIQ(); // normal mode
 }
 
-void LoRa_sendMessage(String message) {
-  LoRa_txMode();                        // set tx mode
-  LoRa.beginPacket();                   // start packet
-  LoRa.print(message);                  // add payload
-  LoRa.endPacket(true);                 // finish packet and send it
+void LoRa_sendMessage(String message)
+{
+    LoRa_txMode();        // set tx mode
+    LoRa.beginPacket();   // start packet
+    LoRa.print(message);  // add payload
+    LoRa.endPacket(true); // finish packet and send it
 }
