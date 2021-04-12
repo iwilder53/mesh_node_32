@@ -22,7 +22,7 @@
 #define MISO_PIN 19
 //#include <AsyncTCP.h>
 #define MESH_PORT 5555 // Mesh Port should be same for all  nodes in Mesh Network
-
+#define lora 
 #include <SPI.h> // include libraries
 #include <LoRa.h>
 
@@ -53,9 +53,9 @@ uint8_t sendDelay = 1;
 unsigned long period = 0;
 String id;
 int wdt = 0;
-int ts_epoch;
+ulong ts_epoch;
 int timeIndex;
-int rebootTime;
+ulong rebootTime;
 uint8_t dropCounter = 0;
 int pos;
 uint32_t root;
@@ -344,7 +344,8 @@ void setup()
     }
     Serial.println("position");
     Serial.print(pos);
-    mfdConfig();
+    mfdConfig(); 
+    #ifdef mesh
     //start the mesh
     mesh.setDebugMsgTypes(ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE); // all types on
     //int channel = 13;
@@ -355,8 +356,11 @@ void setup()
     mesh.onNewConnection(&newConnectionCallback);
     mesh.onChangedConnections(&changedConnectionCallback);
     mesh.onDroppedConnection(&droppedConnection);
-    //declarations for scheduler                                                                                                                                                                                                                                                                                          UwU
+    #endif
+    //declarations for scheduler         
+                                                                                                                                                                                                                                                                                      UwU
     userScheduler.addTask(taskUpdateTime);
+    
     userScheduler.addTask(taskSendMsgSd);
     userScheduler.addTask(taskMultiMfdRead);
     userScheduler.addTask(updateLcd);
@@ -401,6 +405,8 @@ void setup()
     // Add the callback function to be called when the button is pressed.
     // button.onPressed();*/
 }
+ 
+ #ifdef mesh
 void meshUpdate(void *random)
 {
 
@@ -412,7 +418,9 @@ void meshUpdate(void *random)
             vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
         }
     }
-}
+} 
+ 
+#endif
 void schedulerUpdate(void *random)
 {
 
@@ -579,20 +587,12 @@ bool dataStream(uint16_t address, uint16_t deviceId)
         convertMfdFloats();
         return true;
     }
-    else
-    {
-        meshTimer++;
-        Serial.print("Error trying again ! ");
-        if (meshTimer >= 3)
-        {
-            return false;
-        }
         else
-        { // dataStream(address,deviceId);
+        { 
 
             if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
             {
-                Serial.println("OK 2");
+                Serial.println("OK");
                 meshTimer = 0;
                 convertMfdFloats();
                 return true;
@@ -601,7 +601,7 @@ bool dataStream(uint16_t address, uint16_t deviceId)
             {
                 if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
                 {
-                    Serial.println("OK 2");
+                    Serial.println("OK");
                     meshTimer = 0;
                     convertMfdFloats();
                     return true;
@@ -610,47 +610,12 @@ bool dataStream(uint16_t address, uint16_t deviceId)
                 {
                     if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
                     {
-                        Serial.println("OK 2");
+                        Serial.println("OK");
                         meshTimer = 0;
                         convertMfdFloats();
                         return true;
                     }
-                    else
-                    {
-                        if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                        {
-                            Serial.println("OK 2");
-                            meshTimer = 0;
-                            convertMfdFloats();
-                            return true;
-                        }
-                        else
-                        {
-                            if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                            {
-                                Serial.println("OK 2");
-                                meshTimer = 0;
-                                convertMfdFloats();
-                                return true;
-                            }
-                            else
-                            {
-                                if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                                {
-                                    Serial.println("OK 2");
-                                    meshTimer = 0;
-                                    convertMfdFloats();
-                                    return true;
-                                }
-                                else
-                                {
-                                    if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
-                                    {
-                                        Serial.println("OK 2");
-                                        meshTimer = 0;
-                                        convertMfdFloats();
-                                        return true;
-                                    }
+                 
                                     else
                                     {
                                         uint8_t j = 0;
@@ -811,7 +776,8 @@ void sendPayload(String &payload)
     wdt = 0;
 
     Serial.println(payload);
-    if (mesh.isConnected(root))
+  #ifdef mesh  
+  if (mesh.isConnected(root))
     {
         // digitalWrite(sendLed, HIGH);
         taskSendMsgSd.enable();
@@ -821,6 +787,11 @@ void sendPayload(String &payload)
     {
         saveToCard(payload, wdtOld);
     }
+ 
+ #else 
+    LoRa_sendMessage(payload);
+ 
+ #endif
     digitalWrite(connLed, LOW);
 }
 
