@@ -1,4 +1,3 @@
-//Libraries
 
 #include "painlessMesh.h"
 #include "FS.h"
@@ -22,15 +21,15 @@
 #define MISO_PIN 19
 //#include <AsyncTCP.h>
 #define MESH_PORT 5555 // Mesh Port should be same for all  nodes in Mesh Network
-#define lora 
+
 #include <SPI.h> // include libraries
 #include <LoRa.h>
 
-const long frequency = 915E6; // LoRa Frequency
+const long frequency = 433E6; // LoRa Frequency
 
-const int csPin = 10;   // LoRa radio chip select
-const int resetPin = 9; // LoRa radio reset
-const int irqPin = 2;   // change for your board; must be a hardware interrupt pin
+const int csPin = 5;   // LoRa radio chip select
+const int resetPin = 14; // LoRa radio reset
+const int irqPin = 27;   // change for your board; must be a hardware interrupt pin
 
 uint32_t mfdVals[25];
 //objects declaraation
@@ -53,9 +52,9 @@ uint8_t sendDelay = 1;
 unsigned long period = 0;
 String id;
 int wdt = 0;
-ulong ts_epoch;
+int ts_epoch;
 int timeIndex;
-ulong rebootTime;
+int rebootTime;
 uint8_t dropCounter = 0;
 int pos;
 uint32_t root;
@@ -82,6 +81,7 @@ xSemaphoreHandle xMutex;
 // User stub
 void mfdConfig();
 void onTxDone();
+void LoRa_sendMessage(String message);
 
 void blinkLed(void *random);
 void updateTime();
@@ -138,8 +138,8 @@ void updateTime()
 //Declarations for tasks scheduling
 Task taskUpdateTime(TASK_SECOND * 1, TASK_FOREVER, &updateTime);        // Set task second to send msg in a time interval (Here interval is 4 second)
 Task taskSendMsgSd(TASK_MILLISECOND * 200, TASK_FOREVER, &sendMsgSd);   // Set task second to send msg in a time interval
-Task taskReadMfd(TASK_MINUTE * 2, TASK_FOREVER, &read_Mfd_Task);        // Set task second to send msg in a time interval (Here interval is 4 second)
-Task taskMultiMfdRead(TASK_SECOND * 15, TASK_FOREVER, &multi_mfd_read); // Set task second to send msg in a time interval (Here interval is 4 second)
+Task taskReadMfd(TASK_SECOND * 20, TASK_FOREVER, &read_Mfd_Task);        // Set task second to send msg in a time interval (Here interval is 4 second)
+Task taskMultiMfdRead(TASK_SECOND * 10, TASK_FOREVER, &multi_mfd_read); // Set task second to send msg in a time interval (Here interval is 4 second)
 Task updateLcd(TASK_SECOND * 3, TASK_FOREVER, &lcdUpdate);              // Set task second to send msg in a time interval (Here interval is 4 second)
 
 //runs when node recieves something
@@ -344,8 +344,7 @@ void setup()
     }
     Serial.println("position");
     Serial.print(pos);
-    mfdConfig(); 
-    #ifdef mesh
+    mfdConfig();
     //start the mesh
     mesh.setDebugMsgTypes(ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE); // all types on
     //int channel = 13;
@@ -356,17 +355,14 @@ void setup()
     mesh.onNewConnection(&newConnectionCallback);
     mesh.onChangedConnections(&changedConnectionCallback);
     mesh.onDroppedConnection(&droppedConnection);
-    #endif
-    //declarations for scheduler         
-                                                                                                                                                                                                                                                                                      UwU
+    //declarations for scheduler                                                                                                                                                                                                                                                                                          UwU
     userScheduler.addTask(taskUpdateTime);
-    
     userScheduler.addTask(taskSendMsgSd);
     userScheduler.addTask(taskMultiMfdRead);
     userScheduler.addTask(updateLcd);
     updateLcd.enable();
     userScheduler.addTask(taskReadMfd);
-    taskReadMfd.enableDelayed(15000);
+    taskReadMfd.enable();
 
     //  mesh.initOTAReceive(ROLE);
 
@@ -375,7 +371,7 @@ void setup()
     pinMode(connLed, OUTPUT);
     xTaskCreatePinnedToCore(meshUpdate, "meshTask", 40000, meshTaskHandle_t, 3, NULL, 0);
     //xTaskCreatePinnedToCore(lcdShiet, "lcdTask", 10000, NULL, 3, NULL, 0);
-    xTaskCreatePinnedToCore(schedulerUpdate, "schedulerUpdate", 16000, NULL, 2, NULL, 1);
+    xTaskCreatePinnedToCore(schedulerUpdate, "schedulerUpdate", 32000, NULL, 2, NULL, 1);
 
     lcd.clear();
     lcd.print("Hetadatain");
@@ -405,8 +401,6 @@ void setup()
     // Add the callback function to be called when the button is pressed.
     // button.onPressed();*/
 }
- 
- #ifdef mesh
 void meshUpdate(void *random)
 {
 
@@ -418,9 +412,7 @@ void meshUpdate(void *random)
             vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
         }
     }
-} 
- 
-#endif
+}
 void schedulerUpdate(void *random)
 {
 
@@ -587,12 +579,20 @@ bool dataStream(uint16_t address, uint16_t deviceId)
         convertMfdFloats();
         return true;
     }
+    else
+    {
+        meshTimer++;
+        Serial.print("Error trying again ! ");
+        if (meshTimer >= 3)
+        {
+            return false;
+        }
         else
-        { 
+        { // dataStream(address,deviceId);
 
             if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
             {
-                Serial.println("OK");
+                Serial.println("OK 2");
                 meshTimer = 0;
                 convertMfdFloats();
                 return true;
@@ -601,7 +601,7 @@ bool dataStream(uint16_t address, uint16_t deviceId)
             {
                 if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
                 {
-                    Serial.println("OK");
+                    Serial.println("OK 2");
                     meshTimer = 0;
                     convertMfdFloats();
                     return true;
@@ -610,12 +610,47 @@ bool dataStream(uint16_t address, uint16_t deviceId)
                 {
                     if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
                     {
-                        Serial.println("OK");
+                        Serial.println("OK 2");
                         meshTimer = 0;
                         convertMfdFloats();
                         return true;
                     }
-                 
+                    else
+                    {
+                        if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                        {
+                            Serial.println("OK 2");
+                            meshTimer = 0;
+                            convertMfdFloats();
+                            return true;
+                        }
+                        else
+                        {
+                            if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                            {
+                                Serial.println("OK 2");
+                                meshTimer = 0;
+                                convertMfdFloats();
+                                return true;
+                            }
+                            else
+                            {
+                                if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                                {
+                                    Serial.println("OK 2");
+                                    meshTimer = 0;
+                                    convertMfdFloats();
+                                    return true;
+                                }
+                                else
+                                {
+                                    if (readSync(deviceId, address, 48, hregs2) == Modbus::EX_SUCCESS)
+                                    {
+                                        Serial.println("OK 2");
+                                        meshTimer = 0;
+                                        convertMfdFloats();
+                                        return true;
+                                    }
                                     else
                                     {
                                         uint8_t j = 0;
@@ -646,7 +681,7 @@ void convertMfdFloats()
     {
 
         uint16_t temp1[2] = {hregs2[i], hregs2[i + 1]};
-        memcpy(&mfdValues[j], temp1, 32);
+        memcpy(&mfdValues[j], temp1, 32); i++;j++;
     }
 }
 String readMfd(uint16_t devId, uint16_t address, uint8_t iteration)
@@ -753,6 +788,7 @@ void sendMFD()
     for (uint8_t i = 0; i < 3; i++)
     {
         sendPayload(msgMfd_payload[i]);
+        vTaskDelay(1000 / portTICK_RATE_MS);
     }
 }
 //writing data to card
@@ -776,22 +812,9 @@ void sendPayload(String &payload)
     wdt = 0;
 
     Serial.println(payload);
-  #ifdef mesh  
-  if (mesh.isConnected(root))
-    {
-        // digitalWrite(sendLed, HIGH);
-        taskSendMsgSd.enable();
-        mesh.sendSingle(root, String(payload));
-    }
-    else
-    {
-        saveToCard(payload, wdtOld);
-    }
- 
- #else 
     LoRa_sendMessage(payload);
- 
- #endif
+        // digitalWrite(sendLed, HIGH);
+
     digitalWrite(connLed, LOW);
 }
 
@@ -916,15 +939,9 @@ void mfdConfig()
     mfd_dev_id[7] = atoi(MFD_SERIAL_ID_8);
     Serial.println(mfd_dev_id[7]);
 }
-void LoRa_txMode()
-{
-    LoRa.idle();            // set standby mode
-    LoRa.disableInvertIQ(); // normal mode
-}
 
 void LoRa_sendMessage(String message)
 {
-    LoRa_txMode();        // set tx mode
     LoRa.beginPacket();   // start packet
     LoRa.print(message);  // add payload
     LoRa.endPacket(true); // finish packet and send it
