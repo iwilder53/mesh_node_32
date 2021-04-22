@@ -15,10 +15,7 @@
 #define BUTTON_PIN 0
 #define ROLE "LMH_1"
 #define VERSION "SpyderEye v1.0.2"
-#define CS_PIN 5
-#define CLOCK_PIN 18
-#define MOSI_PIN 23
-#define MISO_PIN 19
+//#include "loraMesh.h"
 //#include <AsyncTCP.h>
 #define MESH_PORT 5555 // Mesh Port should be same for all  nodes in Mesh Network
 
@@ -33,12 +30,12 @@ const int irqPin = 27;   // change for your board; must be a hardware interrupt 
 
 uint32_t mfdVals[25];
 //objects declaraation
+ModbusRTU mb;
 
 Modbus::ResultCode err;
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 Scheduler userScheduler; // to control your personal task
-painlessMesh mesh;
-ModbusRTU mb;
+//loraMesh loramesh(csPin,resetPin,irqPin);
 //variables
 uint8_t mfd_read_pos = 0, sdQueue;
 uint16_t hregs2[96];
@@ -78,6 +75,12 @@ TaskHandle_t mfdTaskHandle_t = NULL;
 uint32_t meshNodes[4] = {2137584946, 2989895757, 3520592757};
 xSemaphoreHandle xMutex;
 
+String outgoing;              // outgoing message
+byte msgCount = 0;            // count of outgoing messages
+byte localAddress = 0xFF;     // address of this device
+byte destination = 0xBB;      // destination to send to
+long lastSendTime = 0;        // last send time
+
 // User stub
 void mfdConfig();
 void onTxDone();
@@ -99,7 +102,6 @@ bool dataStream(uint16_t address, uint16_t deviceId);
 boolean read_Mfd_Task();
 void lcdUpdate();
 void updateTime();
-void sendMsgSd();
 void ledUpdate();
 void sendPayload(String &payload);
 void saveToCard(String &payload);
@@ -109,22 +111,8 @@ void meshUpdate(void *random);
 void setConnectedNode();
 void convertMfdFloats();
 void writePosToCard();
-void setConnectedNode()
-{
+ void onReceiveCb(int recieved_packet_size);
 
-    if (connectedNode == meshNodes[0])
-    {
-        connectedNode = 0;
-    }
-    else if (connectedNode == meshNodes[1])
-    {
-        connectedNode = 1;
-    }
-    else if (connectedNode == meshNodes[1])
-    {
-        connectedNode = 2;
-    }
-}
 void updateTime()
 { //will update time from root && also watchdog
     //digitalWrite(sendLed, LOW);
@@ -137,132 +125,76 @@ void updateTime()
 
 //Declarations for tasks scheduling
 Task taskUpdateTime(TASK_SECOND * 1, TASK_FOREVER, &updateTime);        // Set task second to send msg in a time interval (Here interval is 4 second)
-Task taskSendMsgSd(TASK_MILLISECOND * 200, TASK_FOREVER, &sendMsgSd);   // Set task second to send msg in a time interval
-Task taskReadMfd(TASK_SECOND * 20, TASK_FOREVER, &read_Mfd_Task);        // Set task second to send msg in a time interval (Here interval is 4 second)
+Task taskReadMfd(TASK_MINUTE * 2, TASK_FOREVER, &read_Mfd_Task);        // Set task second to send msg in a time interval (Here interval is 4 second)
 Task taskMultiMfdRead(TASK_SECOND * 10, TASK_FOREVER, &multi_mfd_read); // Set task second to send msg in a time interval (Here interval is 4 second)
 Task updateLcd(TASK_SECOND * 3, TASK_FOREVER, &lcdUpdate);              // Set task second to send msg in a time interval (Here interval is 4 second)
 
-//runs when node recieves something
-void receivedCallback(uint32_t from, String &msg)
-{
-    taskSendMsgSd.enableIfNot();
-
-    JSONVar msgConfig = JSON.parse(msg);
-    if (msgConfig.hasOwnProperty("meshNodes"))
-    {
-        Serial.println("got Config");
-        const char *ID = msgConfig["id"];
-        File configFile;
-        const char *configType = msgConfig["meshNodes"];
-        Serial.print(ID);
-        if (String(ID) == id)
-        {
-            SPIFFS.begin();
-            if (String(configType) == "config")
-            {
-                SPIFFS.remove("/config.json");
-                configFile = SPIFFS.open("/config.json", "w");
-            }
-            else
-            {
-
-                SPIFFS.remove("/mfdConf.json");
-                configFile = SPIFFS.open("/mfdConf.json", "w");
-            }
-            configFile.print(msg);
-            configFile.close();
-            SPIFFS.end();
-        }
-    }
-    if (msg == "rootFull")
-    {
-        rootStorage = false;
-    }
-
-    else
-    {
-        String strMsg = String(msg);
-        ts_epoch = msg.toInt();
-    }
-    Serial.printf("startHere: Received from %u msg=%s\n", from, msg.c_str());
-}
-// runs when a new connection is established
-void newConnectionCallback(uint32_t nodeId)
-{ //rssi = WiFi.RSSI();
-
-    connectedNode = nodeId;
-    for (uint8_t i = 0; i < 4; i++)
-    {
-
-        if (connectedNode == meshNodes[i])
-        {
-            connectedNode = i;
-
-            i = 4;
-        }
-    }
-    meshAlive = true;
-    Serial.printf("--> startHere: New Connection, nodeId = %u\n", nodeId);
-    //String nMap = mesh.asNodeTree().toString();
-    //mesh.sendSingle(root, nMap);
-    if (mesh.startDelayMeas(root))
-    {
-        taskSendMsgSd.enable();
-        //  String configFile = String(String(id) + "," + String(root) + "," + String(mcp) + "," + String(mfd) + "," + String(pins) + "," + String(sendDelay));
-        //   mesh.sendSingle(root, configFile);
-    }
-    //  taskConnLed.enable();
-}
-//runs when the topology changes
-void changedConnectionCallback()
-{
-    //rssi = WiFi.RSSI();
-    if (rootStorage == true && mesh.isConnected(root))
-    {
-        taskSendMsgSd.enable();
-    }
-    meshAlive = true;
-    Serial.printf("Changed connections\n");
-    String nMap = mesh.subConnectionJson(true);
-    mesh.sendSingle(root, nMap);
-}
 // for internal timekeeping of the mesh
 void onTxDone()
 {
-    Serial.println("TxDone");
+    Serial.println("TxDone"); 
+} 
+void onReceiveCb(int recieved_packet_size) {
+  if (recieved_packet_size == 0) return;          // if there's no packet, return
+
+  // read packet header bytes:
+  int recipient = LoRa.read();          // recipient address
+  byte sender = LoRa.read();            // sender address
+  byte incomingMsgId = LoRa.read();     // incoming msg ID
+  byte incomingLength = LoRa.read();    // incoming msg length
+
+  String incoming = "";                 // payload of packet
+
+  while (LoRa.available()) {            // can't use readString() in callback, so
+    incoming += (char)LoRa.read();      // add bytes one by one
+  }
+
+  if (incomingLength != incoming.length()) {   // check length for error
+    Serial.println("error: message length does not match length");
+    return;                             // skip rest of function
+  }
+
+  // if the recipient isn't this device or broadcast,
+  if (recipient != localAddress && recipient != 0xFF) {
+    Serial.println("This message is not for me.");
+    return;                             // skip rest of function
+  }
+
+  // if message is for this device, or broadcast, print details:
+  Serial.println("Received from: 0x" + String(sender, HEX));
+  Serial.println("Sent to: 0x" + String(recipient, HEX));
+  Serial.println("Message ID: " + String(incomingMsgId));
+  Serial.println("Message length: " + String(incomingLength));
+  Serial.println("Message: " + incoming);
+  Serial.println("RSSI: " + String(LoRa.packetRssi()));
+    ts_epoch = incoming.toInt();
 }
 
-void droppedConnection(uint32_t node_id)
-{
-    meshAlive = false;
-    //lcd.setCursor(0, 1);
-    //lcd.clear();
-    // lcd.println("Lost connection To : " + node_id);
-    digitalWrite(connLed, LOW);
-    delay(3000);
-    rssi = 0;
-    dropCounter++;
-}
 void setup()
 {
-
+  // loramesh.init(433E6);
     lcd.init(); // initialize the //lcd
     lcd.backlight();
     lcd.blink_off();
     Serial.begin(115200);
     Serial2.begin(9600, SERIAL_8E1);
     mb.begin(&Serial2);
-    mb.master();
-
-    LoRa.setPins(csPin, resetPin, irqPin);
-
-    if (!LoRa.begin(frequency))
+    mb.master();  LoRa.setPins(csPin, resetPin, irqPin);
+  if (!LoRa.begin(frequency))
     {
         Serial.println("LoRa init failed. Check your connections.");
         while (true)
             ; // if failed, do nothing
     }
-    LoRa.onTxDone(onTxDone);
+  
+
+    LoRa.onReceive(onReceiveCb);
+    LoRa.setSpreadingFactor(12);
+    LoRa.setTxPower(20);
+    LoRa.setOCP(140);
+    LoRa.onTxDone(onTxDone); LoRa.setCodingRate4(4); //LoRa.setSignalBandwidth(31.25E3);
+      LoRa.setSyncWord(0xA5);
+
     // parsing the config
     /*  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B);
     esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B);*/
@@ -346,18 +278,8 @@ void setup()
     Serial.print(pos);
     mfdConfig();
     //start the mesh
-    mesh.setDebugMsgTypes(ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE); // all types on
-    //int channel = 13;
-    mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_STA, 13);
-    //  mesh.setContainsRoot(true);
-
-    mesh.onReceive(&receivedCallback);
-    mesh.onNewConnection(&newConnectionCallback);
-    mesh.onChangedConnections(&changedConnectionCallback);
-    mesh.onDroppedConnection(&droppedConnection);
     //declarations for scheduler                                                                                                                                                                                                                                                                                          UwU
     userScheduler.addTask(taskUpdateTime);
-    userScheduler.addTask(taskSendMsgSd);
     userScheduler.addTask(taskMultiMfdRead);
     userScheduler.addTask(updateLcd);
     updateLcd.enable();
@@ -369,10 +291,8 @@ void setup()
     SPIFFS.end();
     taskUpdateTime.enable();
     pinMode(connLed, OUTPUT);
-    xTaskCreatePinnedToCore(meshUpdate, "meshTask", 40000, meshTaskHandle_t, 3, NULL, 0);
-    //xTaskCreatePinnedToCore(lcdShiet, "lcdTask", 10000, NULL, 3, NULL, 0);
     xTaskCreatePinnedToCore(schedulerUpdate, "schedulerUpdate", 32000, NULL, 2, NULL, 1);
-
+    
     lcd.clear();
     lcd.print("Hetadatain");
 
@@ -401,18 +321,6 @@ void setup()
     // Add the callback function to be called when the button is pressed.
     // button.onPressed();*/
 }
-void meshUpdate(void *random)
-{
-
-    for (;;)
-    {
-        {
-            mesh.update();
-
-            vTaskDelay(10 / portTICK_RATE_MS); //  delay(10);
-        }
-    }
-}
 void schedulerUpdate(void *random)
 {
 
@@ -434,74 +342,12 @@ void loop()
         while (1)
             ;
     }
-    if (rebootTime > 1200)
+    if (rebootTime > 84600)
     {
         writeTimeToCard();
         ESP.restart();
     }
 }
-//to dump data from internal storage
-void sendMsgSd()
-{
-    digitalWrite(connLed, HIGH);
-    if (mesh.isConnected(root) && (rootStorage == true))
-    {
-        SPIFFS.begin();
-        File file = SPIFFS.open("/offlinelog.txt", "r"); // FILE_READ is default so not realy needed but if you like to use this technique for e.g. write you need FILE_WRITE
-                                                         //#endif
-        if (!SPIFFS.exists("/offlinelog.txt"))
-        {
-            Serial.println("Failed to open file for reading");
-            taskSendMsgSd.disable();
-            pos = 0;
-            timeIndex = 0;
-            return;
-        }
-        String buffer;
-        for (int i = 0; i < 1; i++)
-            ;
-
-        {
-            file.seek(pos);
-            buffer = file.readStringUntil('\n');
-            msgSd = buffer;
-            if (buffer != "")
-            {
-                if (mesh.isConnected(root))
-                {
-                    sdQueue++;
-                    mesh.sendSingle(root, msgSd);
-                }
-                else
-                {
-                    taskSendMsgSd.disable();
-                }
-                // mesh.sendSingle(root, msgSd);
-                Serial.println(msgSd);
-                pos = file.position();
-            }
-            file.close();
-            Serial.println(F("DONE Reading"));
-        }
-        if (buffer == "")
-        {
-            pos = 0;
-            String ackMsg = id;
-            ackMsg += "sent from sd card";
-            //mesh.sendSingle(root, ackMsg);
-            SPIFFS.remove("/offlinelog.txt");
-            taskSendMsgSd.disable(); //ESP.restart();
-        }
-        if (sdQueue > 50)
-        {
-            sdQueue = 0;
-            taskSendMsgSd.disable();
-        }
-        SPIFFS.end();
-    }
-    digitalWrite(connLed, LOW);
-}
-
 void writeTimeToCard()
 {
     SPIFFS.begin();
@@ -776,10 +622,7 @@ void multi_mfd_read()
         Serial2.end();
         mfd_read_pos = 0;
         taskMultiMfdRead.disable();
-        if (rootStorage == true)
-        {
-            taskSendMsgSd.enable();
-        }
+    
     }
 }
 
@@ -788,7 +631,7 @@ void sendMFD()
     for (uint8_t i = 0; i < 3; i++)
     {
         sendPayload(msgMfd_payload[i]);
-        vTaskDelay(1000 / portTICK_RATE_MS);
+        vTaskDelay(3000 / portTICK_RATE_MS);
     }
 }
 //writing data to card
@@ -942,7 +785,14 @@ void mfdConfig()
 
 void LoRa_sendMessage(String message)
 {
-    LoRa.beginPacket();   // start packet
-    LoRa.print(message);  // add payload
-    LoRa.endPacket(true); // finish packet and send it
+  LoRa.beginPacket();                   // start packet
+  LoRa.write(destination);              // add destination address
+  LoRa.write(localAddress);             // add sender address
+  LoRa.write(msgCount);                 // add message ID
+  LoRa.write(message.length());        // add payload length
+  LoRa.print(message);                 // add payload
+  LoRa.endPacket();                     // finish packet and send it
+  msgCount++;                   // go back into receive mode
+ // finish packet and send it  
+  LoRa.receive();  
 }
